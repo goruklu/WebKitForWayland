@@ -104,6 +104,7 @@ class MediaSourceClientGStreamer: public RefCounted<MediaSourceClientGStreamer> 
 
         // From SourceBufferPrivateGStreamer
         bool append(PassRefPtr<SourceBufferPrivateGStreamer>, const unsigned char*, unsigned);
+        void appendComplete(SourceBufferPrivateClient::AppendResult);
         void removedFromMediaSource(PassRefPtr<SourceBufferPrivateGStreamer>);
         void flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString);
         void enqueueSample(PassRefPtr<MediaSample> sample, AtomicString trackIDString);

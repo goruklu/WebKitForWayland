@@ -195,6 +195,7 @@ private:
     unsigned long corruptedVideoFrames() override { return 0; }
     MediaTime totalFrameDelay() override { return MediaTime::zeroTime(); }
     GRefPtr<GstCaps> currentDemuxerCaps() const override;
+    bool timeIsBuffered(float);
 #endif
 
 private:

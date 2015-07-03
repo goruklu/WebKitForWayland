@@ -75,6 +75,25 @@ void SourceBufferPrivateGStreamer::append(const unsigned char* data, unsigned le
         m_sourceBufferPrivateClient->sourceBufferPrivateAppendComplete(this, SourceBufferPrivateClient::ReadStreamFailed);
 }
 
+void SourceBufferPrivateGStreamer::appendComplete(SourceBufferPrivateClient::AppendResult appendResult)
+{
+    // DEBUG
+    {
+        const char *result;
+        switch (appendResult) {
+        case SourceBufferPrivateClient::AppendSucceeded: result = "Succeeded"; break;
+        case SourceBufferPrivateClient::ParsingFailed: result = "Parsing failed"; break;
+        case SourceBufferPrivateClient::ReadStreamFailed: result = "Read stream failed"; break;
+        default: result = "Unknown"; break;
+        }
+        printf("### %s: %s\n", __PRETTY_FUNCTION__, result); fflush(stdout);
+    }
+
+    if (m_client)
+        m_client->appendComplete(appendResult);
+
+}
+
 void SourceBufferPrivateGStreamer::abort()
 {
     // This is a hint for the lower layers (WebKitMediaSrc) to force a reset when the next data is appended
