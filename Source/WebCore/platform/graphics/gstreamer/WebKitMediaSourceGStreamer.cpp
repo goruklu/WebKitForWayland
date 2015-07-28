@@ -956,14 +956,6 @@ static void webKitMediaSrcParserNotifyCaps(GObject* object, GParamSpec*, Stream*
         return;
     }
 
-    GST_OBJECT_LOCK(stream->parent->parent);
-    if (stream->parent->noDataToDecodeTimeoutTag) {
-        g_source_remove(stream->parent->noDataToDecodeTimeoutTag);
-        stream->parent->noDataToDecodeTimeoutTag = 0;
-    }
-    GST_OBJECT_UNLOCK(stream->parent->parent);
-
-    GST_DEBUG_OBJECT(stream->parent, "caps changed to %" GST_PTR_FORMAT, caps);
     webKitMediaSrcUpdatePresentationSize(caps, stream);
     gst_caps_unref(caps);
 
