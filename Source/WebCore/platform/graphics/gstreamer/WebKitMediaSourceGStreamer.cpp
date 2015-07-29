@@ -1795,6 +1795,52 @@ void MediaSourceClientGStreamer::durationChanged(const MediaTime& duration)
     gst_element_post_message(GST_ELEMENT(m_src.get()), gst_message_new_duration_changed(GST_OBJECT(m_src.get())));
 }
 
+// DEBUG
+static void dumpDataToDisk(const unsigned char* data, unsigned length, SourceBufferPrivateGStreamer* sbPrivate)
+{
+    static const int N = 2;
+    static void *sourceBuffers[N] = { 0 };
+    static int counts[N] = { 0 };
+
+    int i;
+    // Locate our own slot or a free one
+    for (i = 0; i < N; i++) {
+        if (sourceBuffers[i] == sbPrivate || sourceBuffers[i] == 0) break;
+    }
+
+    // Slots exhausted, reset the whole array
+    if (i == N) {
+        for (i = 0; i < N; i++) {
+            sourceBuffers[i] = 0;
+            counts[i] = 0;
+        }
+        i = 0;
+    }
+
+    // Remember sourceBuffer if our slot is initialized for the first time
+    if (sourceBuffers[i] == 0)
+        sourceBuffers[i] = sbPrivate;
+
+    counts[i]++;
+
+    String fileName = String::format("/tmp/append-%d-%03d.mp4", i, counts[i]);
+
+    const char* cFileName = fileName.utf8().data();
+    printf("### %s: fileName=%s\n", __PRETTY_FUNCTION__, cFileName); fflush(stdout);
+
+    FILE* f = fopen(cFileName, "w");
+    if (!f) {
+        printf("### %s: ERROR creating dump file\n", __PRETTY_FUNCTION__); fflush(stdout);
+        return;
+    }
+
+    if (!fwrite(data, sizeof(unsigned char), length, f)) {
+        printf("### %s: ERROR writing to dump file\n", __PRETTY_FUNCTION__); fflush(stdout);
+    }
+
+    fclose(f);
+}
+
 bool MediaSourceClientGStreamer::append(PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, const unsigned char* data, unsigned length)
 {
     WebKitMediaSrcPrivate* priv = m_src->priv;
@@ -1850,6 +1896,9 @@ bool MediaSourceClientGStreamer::append(PassRefPtr<SourceBufferPrivateGStreamer>
 
     source->noDataToDecodeTimeoutTag = g_timeout_add(1000, GSourceFunc(webKitMediaSrcNoDataToDecodeTimeout), source);
     GST_OBJECT_UNLOCK(m_src.get());
+
+    // DEBUG
+    dumpDataToDisk(data, length, sourceBufferPrivate.get());
 
     ret = gst_app_src_push_buffer(GST_APP_SRC(source->src), buffer);
 
