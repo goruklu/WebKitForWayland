@@ -2033,7 +2033,7 @@ void MediaPlayerPrivateGStreamer::notifyAppendComplete()
         }
     }
 
-    if (m_seekIsPending)
+    if (m_seekIsPending) {
         if (timeIsBuffered(m_seekTime)) {
             updatePlaybackRate();
             LOG_MEDIA_MESSAGE("[Seek] committing pending seek to %f after append completed", m_seekTime);
@@ -2048,6 +2048,7 @@ void MediaPlayerPrivateGStreamer::notifyAppendComplete()
         } else {
             printf("### %s: Still can't seek because %f isn't buffered yet\n", __PRETTY_FUNCTION__, m_seekTime);
         }
+    }
 }
 #endif
 

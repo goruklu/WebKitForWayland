@@ -408,8 +408,8 @@ static void webkit_media_src_init(WebKitMediaSrc* src)
 {
     src->priv = WEBKIT_MEDIA_SRC_GET_PRIVATE(src);
     src->priv->seekTime = MediaTime::invalidTime();
-    new (src->priv) WebKitMediaSrcPrivate();
     src->priv->ongoingAppends = 0;
+    new (src->priv) WebKitMediaSrcPrivate();
 }
 
 static void webKitMediaSrcFinalize(GObject* object)
@@ -981,6 +981,8 @@ static void webKitMediaSrcParserNotifyCaps(GObject* object, GParamSpec*, Stream*
         return;
     }
 
+    printf("### %s: Caps changed\n", __PRETTY_FUNCTION__); fflush(stdout);
+
     webKitMediaSrcUpdatePresentationSize(caps, stream);
     gst_caps_unref(caps);
 
@@ -1012,6 +1014,7 @@ static void webKitMediaSrcDemuxerPadAdded(GstElement*, GstPad* demuxersrcpad, So
 
     stream->decryptorSrcPad = nullptr;
 
+    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
 
     GST_OBJECT_LOCK(source->parent);
     padId = source->parent->priv->numberOfPads;
@@ -1325,6 +1328,8 @@ static void webKitMediaSrcDemuxerPadRemoved(GstElement*, GstPad* demuxersrcpad, 
         }
     }
     GST_OBJECT_UNLOCK(source->parent);
+
+    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
 
     // FIXME: turn this to an early return.
     if (stream) {
@@ -1881,10 +1886,13 @@ bool MediaSourceClientGStreamer::append(PassRefPtr<SourceBufferPrivateGStreamer>
     // Reset parser state after an abort
     if (aborted) {
         if (source->demuxer) {
-            GstState pending;
-            gst_element_get_state(GST_ELEMENT(source->demuxer), 0, &pending, 250 * GST_NSECOND);
+            GstState state, pending;
+            gst_element_get_state(GST_ELEMENT(source->demuxer), &state, &pending, 250 * GST_NSECOND);
+
+            GstState backup = (pending == GST_STATE_VOID_PENDING)?state:pending;
+            printf("### %s: Abort. Resetting demuxer by changing state %d -> %d -> %d\n", __PRETTY_FUNCTION__, state, backup, state); fflush(stdout);
             gst_element_set_state(GST_ELEMENT(source->demuxer), GST_STATE_READY);
-            gst_element_set_state(GST_ELEMENT(source->demuxer), pending);
+            gst_element_set_state(GST_ELEMENT(source->demuxer), backup);
         }
     }
 
