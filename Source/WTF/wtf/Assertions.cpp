@@ -427,12 +427,12 @@ void WTFLogVerbose(const char* file, int line, const char* function, WTFLogChann
     if (channel->state != WTFLogChannelOn)
         return;
 
+    printf_stderr_common("%s(%d) : %s: ", file, line, function);
+
     va_list args;
     va_start(args, format);
     vprintf_stderr_with_trailing_newline(format, args);
     va_end(args);
-
-    printCallSite(file, line, function);
 }
 
 void WTFLogAlwaysV(const char* format, va_list args)
