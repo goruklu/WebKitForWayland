@@ -270,6 +270,7 @@ MediaPlayerPrivateGStreamer::MediaPlayerPrivateGStreamer(MediaPlayer* player)
 #endif
     , m_requestedState(GST_STATE_VOID_PENDING)
     , m_pendingAsyncOperations(nullptr)
+    , m_seekCompleted(true)
 {
 }
 
@@ -797,7 +798,7 @@ bool MediaPlayerPrivateGStreamer::paused() const
 
 bool MediaPlayerPrivateGStreamer::seeking() const
 {
-    return m_seeking;
+    return m_seeking && !m_seekCompleted;
 }
 
 void MediaPlayerPrivateGStreamer::videoChanged()
@@ -1007,9 +1008,11 @@ void MediaPlayerPrivateGStreamer::newTextSample()
 }
 #endif
 
+#if ENABLE(MEDIA_SOURCE)
 // METRO FIXME: GStreamer mediaplayer manages the readystate on its own. We shouldn't change it manually.
 void MediaPlayerPrivateGStreamer::setReadyState(MediaPlayer::ReadyState state)
 {
+    // FIXME: early return here.
     if (state != m_readyState) {
         LOG_MEDIA_MESSAGE("Ready State Changed manually from %u to %u", m_readyState, state);
         MediaPlayer::ReadyState oldReadyState = m_readyState;
@@ -1029,6 +1032,31 @@ void MediaPlayerPrivateGStreamer::setReadyState(MediaPlayer::ReadyState state)
         m_player->readyStateChanged();
     }
 }
+
+void MediaPlayerPrivateGStreamer::waitForSeekCompleted()
+{
+    if (!m_seeking)
+        return;
+
+    LOG_MEDIA_MESSAGE("Waiting for MSE seek completed");
+    m_seekCompleted = false;
+}
+
+void MediaPlayerPrivateGStreamer::seekCompleted()
+{
+    if (m_seekCompleted)
+        return;
+
+    LOG_MEDIA_MESSAGE("MSE seek completed");
+    m_seekCompleted = true;
+
+    if (!seeking() && m_readyState >= MediaPlayer::HaveFutureData)
+        gst_element_set_state(m_pipeline.get(), GST_STATE_PLAYING);
+
+    if (!m_seeking)
+        m_player->timeChanged();
+}
+#endif
 
 void MediaPlayerPrivateGStreamer::setRate(float rate)
 {

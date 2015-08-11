@@ -120,12 +120,12 @@ void MediaSourceGStreamer::setReadyState(MediaPlayer::ReadyState state)
 
 void MediaSourceGStreamer::waitForSeekCompleted()
 {
-    notImplemented();
+    m_playerPrivate->waitForSeekCompleted();
 }
 
 void MediaSourceGStreamer::seekCompleted()
 {
-    notImplemented();
+    m_playerPrivate->seekCompleted();
 }
 
 void MediaSourceGStreamer::sourceBufferPrivateDidChangeActiveState(SourceBufferPrivateGStreamer* buffer, bool isActive)
@@ -137,7 +137,8 @@ void MediaSourceGStreamer::sourceBufferPrivateDidChangeActiveState(SourceBufferP
         m_activeSourceBuffers.remove(buffer);
 }
 
-std::unique_ptr<PlatformTimeRanges> MediaSourceGStreamer::buffered() {
+std::unique_ptr<PlatformTimeRanges> MediaSourceGStreamer::buffered()
+{
     return m_mediaSource->buffered();
 }
 

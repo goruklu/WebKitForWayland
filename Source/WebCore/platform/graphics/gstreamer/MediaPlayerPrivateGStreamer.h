@@ -96,7 +96,11 @@ public:
     float currentTime() const override;
     void seek(float) override;
 
+#if ENABLE(MEDIA_SOURCE)
     void setReadyState(MediaPlayer::ReadyState state);
+    void waitForSeekCompleted();
+    void seekCompleted();
+#endif
 
     void setRate(float) override;
     double rate() const override;
@@ -270,6 +274,7 @@ private:
 #endif
     Mutex m_pendingAsyncOperationsLock;
     GList* m_pendingAsyncOperations;
+    bool m_seekCompleted;
 };
 }
 
