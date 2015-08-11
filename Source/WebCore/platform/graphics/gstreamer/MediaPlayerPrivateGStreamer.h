@@ -100,6 +100,7 @@ public:
     void setReadyState(MediaPlayer::ReadyState state);
     void waitForSeekCompleted();
     void seekCompleted();
+    MediaSourcePrivateClient* mediaSourcePrivateClient() { return m_mediaSource.get(); }
 #endif
 
     void setRate(float) override;
