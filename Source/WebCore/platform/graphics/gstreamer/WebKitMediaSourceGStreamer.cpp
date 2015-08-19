@@ -249,13 +249,16 @@ struct _Source {
     // To know how to construct the segment that will bind new data coming
     // from appendBuffer.
     MediaTime nextSamplePts;
+
+    bool segmentPending;
+    guint32 segmentSeqnum;
+    GstSegment segment;
 };
 
 struct _WebKitMediaSrcPrivate
 {
     _WebKitMediaSrcPrivate()
         : timeoutSource("[WebKit] releaseStream")
-        , seeking(FALSE)
     {
         g_mutex_init(&streamMutex);
         g_cond_init(&streamCondition);
@@ -282,9 +285,6 @@ struct _WebKitMediaSrcPrivate
     bool noMorePads;
     unsigned numberOfPads;
 
-    gboolean paused;
-    gboolean seekable;
-    gboolean seeking;
     MediaTime seekTime;
     int flushAndReenqueueCount;
     GstEvent* seekEvent;
@@ -327,9 +327,6 @@ static void webKitMediaSrcGetProperty(GObject*, guint propertyId, GValue*, GPara
 static GstStateChangeReturn webKitMediaSrcChangeState(GstElement*, GstStateChange);
 static gboolean webKitMediaSrcQueryWithParent(GstPad*, GstObject*, GstQuery*);
 static gboolean webKitMediaSrcDemuxerEventWithParent(GstPad*, GstObject*, GstEvent*);
-static void webKitMediaSrcNeedDataCb(GstAppSrc*, guint length, gpointer userData);
-static void webKitMediaSrcEnoughDataCb(GstAppSrc*, gpointer userData);
-static gboolean webKitMediaSrcSeekDataCb(GstAppSrc*, guint64 position, gpointer userData);
 static gboolean webKitMediaSrcNotifyAppendCompleteToPlayer(WebKitMediaSrc*);
 
 inline static AtomicString getStreamTrackId(Stream* stream);
@@ -338,9 +335,9 @@ static GstClockTime toGstClockTime(float);
 static void webkit_media_src_set_appending(WebKitMediaSrc*, gboolean);
 
 static GstAppSrcCallbacks appsrcCallbacks = {
-    webKitMediaSrcNeedDataCb,
-    webKitMediaSrcEnoughDataCb,
-    webKitMediaSrcSeekDataCb,
+    0,
+    0,
+    0,
     { 0 }
 };
 
@@ -1669,53 +1666,6 @@ static void webKitMediaSrcUriHandlerInit(gpointer gIface, gpointer)
     iface->set_uri = webKitMediaSrcSetUri;
 }
 
-static void webKitMediaSrcNeedDataCb(GstAppSrc*, guint length, gpointer userData)
-{
-    WebKitMediaSrc* src = WEBKIT_MEDIA_SRC(userData);
-
-    GST_DEBUG_OBJECT(src, "Need data: %u", length);
-}
-
-static void webKitMediaSrcEnoughDataCb(GstAppSrc*, gpointer userData)
-{
-    WebKitMediaSrc* src = WEBKIT_MEDIA_SRC(userData);
-
-    GST_DEBUG_OBJECT(src, "Has enough data");
-}
-
-static gboolean webKitMediaSrcSeekDataCb(GstAppSrc* appsrc, guint64 position, gpointer userData)
-{
-    WebKitMediaSrc* src = WEBKIT_MEDIA_SRC(userData);
-    WebKitMediaSrcPrivate* priv = src->priv;
-    bool result;
-
-    GST_DEBUG_OBJECT(appsrc, "Seeking to: %" GST_TIME_FORMAT, GST_TIME_ARGS(position));
-
-    priv->seeking = TRUE;
-    if (position) {
-        WTF::MediaTime time(WTF::MediaTime::createWithDouble(double(static_cast<double>(position) / GST_SECOND)));
-        // src->priv->mediaPlayerPrivate->mediaSourcePrivateClient()->seekToTime(time);
-        // GST_DEBUG_OBJECT(src, "MSE seek to %f finished", time.toDouble());
-        priv->seeking = FALSE;
-    }
-    // TODO: implement me.
-    result = TRUE;
-    return result;
-    // GST_OBJECT_LOCK(src);
-    // if (offset == priv->offset && priv->requestedOffset == priv->offset)
-    //     result = TRUE;
-    // else if (!priv->mediaPlayerPrivate || priv->mediaPlayerPrivate->isLiveStream())
-    //     result = FALSE;
-    // else {
-    //     GST_DEBUG_OBJECT(src, "Doing range-request seek");
-    //     priv->requestedOffset = offset;
-    //     result = TRUE;
-    // }
-    // GST_OBJECT_UNLOCK(src);
-
-    return result;
-}
-
 inline static AtomicString getStreamTrackId(Stream* stream)
 {
     if (stream->audioTrack)
@@ -1784,8 +1734,6 @@ MediaSourcePrivate::AddStatus MediaSourceClientGStreamer::addSourceBuffer(PassRe
 
     gst_app_src_set_callbacks(GST_APP_SRC(source->src), &appsrcCallbacks, source->parent, 0);
     gst_app_src_set_emit_signals(GST_APP_SRC(source->src), FALSE);
-    gst_app_src_set_stream_type(GST_APP_SRC(source->src), GST_APP_STREAM_TYPE_SEEKABLE);
-    g_object_set(source->src, "format", GST_FORMAT_TIME, nullptr);
 
     g_signal_connect(source->typefind, "have-type", G_CALLBACK(webKitMediaSrcHaveType), source);
     source->sourceBuffer = sourceBufferPrivate.get();
@@ -2054,10 +2002,11 @@ void MediaSourceClientGStreamer::flushAndEnqueueNonDisplayingSamples(Vector<RefP
 {
     GST_DEBUG_OBJECT(m_src.get(), "Flushing and re-enqueing %d samples for stream %s", samples.size(), trackIDString.string().utf8().data());
 
+    //GST_OBJECT_LOCK(m_src.get());
     Stream* stream = getStreamByTrackId(m_src.get(), trackIDString);
 
     if (!stream) {
-        // GST_OBJECT_UNLOCK(m_src.get());
+        //GST_OBJECT_UNLOCK(m_src.get());
         return;
     }
 
@@ -2067,6 +2016,18 @@ void MediaSourceClientGStreamer::flushAndEnqueueNonDisplayingSamples(Vector<RefP
     // gst_pad_send_event(pad.get(), gst_event_new_flush_stop(TRUE));
 
     GstPad* demuxersrcpad = stream->demuxersrcpad;
+
+    if (source->segmentPending) {
+        g_printerr("Sending pending segment\n");
+        GstEvent *segmentEvent = gst_event_new_segment(&source->segment);
+
+        gst_event_set_seqnum(segmentEvent, source->segmentSeqnum);
+        source->segmentSeqnum = gst_util_seqnum_next();
+        gst_pad_push_event(stream->demuxersrcpad, segmentEvent);
+
+        source->segmentPending = false;
+    }
+
     GstPad* multiqueuesinkpad = gst_pad_get_peer(demuxersrcpad);
     for (Vector<RefPtr<MediaSample> >::iterator it = samples.begin(); it != samples.end(); ++it) {
         GStreamerMediaSample* sample = static_cast<GStreamerMediaSample*>(it->get());
@@ -2279,21 +2240,54 @@ void webkit_media_src_set_seek_time(WebKitMediaSrc* src, const MediaTime& time)
     src->priv->flushAndReenqueueCount = 0;
 }
 
-void webkit_media_src_perform_seek(WebKitMediaSrc* src, const MediaTime& time)
+void webkit_media_src_perform_seek(WebKitMediaSrc* src, gint64 position, float rate)
 {
-    return;
-    //GST_OBJECT_LOCK(src);
+    GST_OBJECT_LOCK(src);
+    guint32 seqnum;
+    seqnum = gst_util_seqnum_next ();
     for (GList* sources = src->priv->sources; sources; sources = sources->next) {
         Source* source = (Source*)sources->data;
         GRefPtr<GstPad> pad = gst_element_get_static_pad(source->demuxer, "sink");
-        gst_pad_send_event(pad.get(), gst_event_new_flush_start());
-        gst_pad_send_event(pad.get(), gst_event_new_flush_stop(TRUE));
+        GstEvent* event = gst_event_new_flush_start();
+        gst_event_set_seqnum(event, seqnum);
+        gst_pad_send_event(pad.get(), event);
+
+        // FIXME: perform actual flush here.
+        
+        event = gst_event_new_flush_stop(TRUE);
+        gst_event_set_seqnum(event, seqnum);
+        gst_pad_send_event(pad.get(), event);
+
+
+        GstFormat format = GST_FORMAT_TIME;
+        GstSeekFlags flags = GST_SEEK_FLAG_FLUSH;
+        GstSeekType start_type = GST_SEEK_TYPE_SET;
+        gint64 start = position;
+        GstSeekType stop_type = GST_SEEK_TYPE_SET;
+        gint64 stop = GST_CLOCK_TIME_NONE;
+        GstSegment segment;
+        gboolean update;
+
+        //segment = gst_segment_new();
+        //segment->format = format;
+
+        gst_segment_init(&segment, format);
+
+        //memcpy(&segment, &source->segment, sizeof(GstSegment));
+        gst_segment_do_seek(&segment, rate, format, flags, start_type, start, stop_type, stop, &update);
+
+        g_printerr("update: %d\n", update);
+
+        source->segmentPending = true;
+        //gst_pad_send_event(pad.get(), gst_event_new_segment(segment));
+        
+
         // for (size_t index = 0; index < source->streams.size(); index++) {
         //     Stream* stream = source->streams[index];
         //     GstPad* pad = stream->demuxersrcpad;
         // }
     }
-    //GST_OBJECT_UNLOCK(src);
+    GST_OBJECT_UNLOCK(src);
 }
 
 static GstClockTime toGstClockTime(float time)

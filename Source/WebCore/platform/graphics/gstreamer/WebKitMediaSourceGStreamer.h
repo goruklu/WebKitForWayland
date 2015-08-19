@@ -77,7 +77,7 @@ void webkit_media_src_set_mediaplayerprivate(WebKitMediaSrc* src, WebCore::Media
 void webkit_media_src_set_seek_time(WebKitMediaSrc*, const MediaTime&);
 void webkit_media_src_segment_needed(WebKitMediaSrc*, StreamType);
 gboolean webkit_media_src_is_appending(WebKitMediaSrc*);
-void webkit_media_src_perform_seek(WebKitMediaSrc*, const MediaTime&);
+void webkit_media_src_perform_seek(WebKitMediaSrc*, gint64 position, float rate);
 
 G_END_DECLS
 

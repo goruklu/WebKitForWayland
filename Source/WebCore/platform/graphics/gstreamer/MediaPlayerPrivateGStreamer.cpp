@@ -745,9 +745,10 @@ bool MediaPlayerPrivateGStreamer::doSeek(gint64 position, float rate, GstSeekFla
 
 #if ENABLE(MEDIA_SOURCE)
     if (isMediaSource()) {
-        webkit_media_src_perform_seek(WEBKIT_MEDIA_SRC(m_source.get()), time);
         m_mediaSource->seekToTime(time);
+        webkit_media_src_perform_seek(WEBKIT_MEDIA_SRC(m_source.get()), position, rate);
         LOG_MEDIA_MESSAGE("MSE seek to %f finished", time.toDouble());
+        g_timeout_add_seconds(5, dumpPipeline, m_pipeline.get());
         return true;
     }
 #endif
@@ -757,7 +758,6 @@ bool MediaPlayerPrivateGStreamer::doSeek(gint64 position, float rate, GstSeekFla
         return false;
 
 
-    g_timeout_add_seconds(5, dumpPipeline, m_pipeline.get());
     return true;
 }
 
