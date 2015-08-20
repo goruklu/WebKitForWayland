@@ -45,13 +45,13 @@ namespace WebCore {
 
 class SourceBufferPrivateGStreamer;
 class MediaSourceClientGStreamer;
-class MediaPlayerPrivateGStreamer;
+class MediaPlayerPrivateGStreamerBase;
 class PlatformTimeRanges;
 
 // FIXME: Should this be called MediaSourcePrivateGStreamer?
 class MediaSourceGStreamer : public MediaSourcePrivate {
 public:
-    static void open(MediaSourcePrivateClient*, WebKitMediaSrc*, MediaPlayerPrivateGStreamer*);
+    static void open(MediaSourcePrivateClient*, WebKitMediaSrc*, MediaPlayerPrivateGStreamerBase*);
     virtual ~MediaSourceGStreamer();
 
     MediaSourceClientGStreamer& client() const { return *m_client; }
@@ -79,7 +79,7 @@ private:
     HashSet<SourceBufferPrivateGStreamer*> m_activeSourceBuffers;
     RefPtr<MediaSourceClientGStreamer> m_client;
     MediaSourcePrivateClient* m_mediaSource;
-    MediaPlayerPrivateGStreamer* m_playerPrivate;
+    MediaPlayerPrivateGStreamerBase* m_playerPrivate;
 };
 
 }

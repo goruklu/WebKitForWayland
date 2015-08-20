@@ -104,6 +104,12 @@ public:
 
     virtual MediaPlayer::NetworkState networkState() const override;
     virtual MediaPlayer::ReadyState readyState() const override;
+#if ENABLE(MEDIA_SOURCE)
+    virtual void setReadyState(MediaPlayer::ReadyState state);
+    virtual void waitForSeekCompleted();
+    virtual void seekCompleted();
+#endif
+
 
     virtual void setVisible(bool) override { }
     virtual void setSize(const IntSize&) override;

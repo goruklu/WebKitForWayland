@@ -21,9 +21,9 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef MediaPlayerPrivateGStreamer_h
-#define MediaPlayerPrivateGStreamer_h
-#if ENABLE(VIDEO) && USE(GSTREAMER)
+#ifndef MediaPlayerPrivateGStreamerMSE_h
+#define MediaPlayerPrivateGStreamerMSE_h
+#if ENABLE(VIDEO) && USE(GSTREAMER) && ENABLE(MEDIA_SOURCE) && ENABLE(VIDEO_TRACK)
 
 #include "GRefPtrGStreamer.h"
 #include "MediaPlayerPrivateGStreamerBase.h"
@@ -35,13 +35,15 @@
 #include <wtf/Forward.h>
 #include <wtf/glib/GSourceWrap.h>
 
-#if ENABLE(VIDEO_TRACK) && USE(GSTREAMER_MPEGTS)
+#if USE(GSTREAMER_MPEGTS)
 #include <wtf/text/AtomicStringHash.h>
 #endif
 
-#if ENABLE(MEDIA_SOURCE)
 #include "MediaSourceGStreamer.h"
 #include "WebKitMediaSourceGStreamer.h"
+
+#if ENABLE(ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA_V2)
+#include <wtf/threads/BinarySemaphore.h>
 #endif
 
 typedef struct _GstBuffer GstBuffer;
@@ -56,16 +58,20 @@ class AudioSourceProvider;
 class AudioSourceProviderGStreamer;
 #endif
 
+#if ENABLE(ENCRYPTED_MEDIA) && USE(DXDRM)
+class DiscretixSession;
+#endif
+
 class AudioTrackPrivateGStreamer;
 class InbandMetadataTextTrackPrivateGStreamer;
 class InbandTextTrackPrivateGStreamer;
 class MediaPlayerRequestInstallMissingPluginsCallback;
 class VideoTrackPrivateGStreamer;
 
-class MediaPlayerPrivateGStreamer : public MediaPlayerPrivateGStreamerBase {
+class MediaPlayerPrivateGStreamerMSE : public MediaPlayerPrivateGStreamerBase {
 public:
-    explicit MediaPlayerPrivateGStreamer(MediaPlayer*);
-    ~MediaPlayerPrivateGStreamer();
+    explicit MediaPlayerPrivateGStreamerMSE(MediaPlayer*);
+    ~MediaPlayerPrivateGStreamerMSE();
 
     static void registerMediaEngine(MediaEngineRegistrar);
     void handleSyncMessage(GstMessage*);
@@ -76,9 +82,7 @@ public:
     bool hasAudio() const override { return m_hasAudio; }
 
     void load(const String &url) override;
-#if ENABLE(MEDIA_SOURCE)
     void load(const String& url, MediaSourcePrivateClient*) override;
-#endif
 #if ENABLE(MEDIA_STREAM)
     void load(MediaStreamPrivate&) override;
 #endif
@@ -96,12 +100,10 @@ public:
     float currentTime() const override;
     void seek(float) override;
 
-#if ENABLE(MEDIA_SOURCE)
     void setReadyState(MediaPlayer::ReadyState state) override;
     void waitForSeekCompleted() override;
     void seekCompleted() override;
     MediaSourcePrivateClient* mediaSourcePrivateClient() { return m_mediaSource.get(); }
-#endif
 
     void setRate(float) override;
     double rate() const override;
@@ -130,13 +132,11 @@ public:
     void notifyPlayerOfVideoCaps();
     void notifyPlayerOfAudio();
 
-#if ENABLE(VIDEO_TRACK)
     void textChanged();
     void notifyPlayerOfText();
 
     void newTextSample();
     void notifyPlayerOfNewTextSample();
-#endif
 
     void sourceChanged();
     GstElement* audioSink() const override;
@@ -152,9 +152,23 @@ public:
     AudioSourceProvider* audioSourceProvider() override { return reinterpret_cast<AudioSourceProvider*>(m_audioSourceProvider.get()); }
 #endif
 
+#if ENABLE(ENCRYPTED_MEDIA)
+    MediaPlayer::MediaKeyException addKey(const String&, const unsigned char*, unsigned, const unsigned char*, unsigned, const String&);
+    MediaPlayer::MediaKeyException generateKeyRequest(const String&, const unsigned char*, unsigned);
+    MediaPlayer::MediaKeyException cancelKeyRequest(const String&, const String&);
+    void needKey(const String&, const String&, const unsigned char*, unsigned);
+#endif
+#if ENABLE(ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA_V2)
+    void signalDRM();
+#endif
+
     bool isLiveStream() const override { return m_isStreaming; }
-#if ENABLE(MEDIA_SOURCE)
     void notifyAppendComplete();
+
+#if ENABLE(ENCRYPTED_MEDIA_V2)
+    void needKey(RefPtr<Uint8Array> initData);
+    void setCDMSession(CDMSession*);
+    void keyAdded();
 #endif
 
 private:
@@ -162,8 +176,18 @@ private:
     static MediaPlayer::SupportsType supportsType(const MediaEngineSupportParameters&);
 
     static bool isAvailable();
+    static bool supportsKeySystem(const String& keySystem, const String& mimeType);
 
     GstElement* createAudioSink() override;
+
+#if ENABLE(ENCRYPTED_MEDIA_V2)
+    std::unique_ptr<CDMSession> createSession(const String&);
+    CDMSession* m_cdmSession;
+#endif
+
+#if ENABLE(ENCRYPTED_MEDIA) && USE(DXDRM)
+    DiscretixSession* m_dxdrmSession;
+#endif
 
     float playbackPosition() const;
 
@@ -178,13 +202,11 @@ private:
 
     void setDownloadBuffering();
     void processBufferingStats(GstMessage*);
-#if ENABLE(VIDEO_TRACK) && USE(GSTREAMER_MPEGTS)
+#if USE(GSTREAMER_MPEGTS)
     void processMpegTsSection(GstMpegtsSection*);
 #endif
-#if ENABLE(VIDEO_TRACK)
     void processTableOfContents(GstMessage*);
     void processTableOfContentsEntry(GstTocEntry*, GstTocEntry* parent);
-#endif
     bool doSeek(gint64 position, float rate, GstSeekFlags seekType);
     void updatePlaybackRate();
 
@@ -193,7 +215,6 @@ private:
     bool didPassCORSAccessCheck() const override;
     bool canSaveMediaData() const override;
 
-#if ENABLE(MEDIA_SOURCE)
     // TODO: Implement
     unsigned long totalVideoFrames() override { return 0; }
     unsigned long droppedVideoFrames() override { return 0; }
@@ -201,14 +222,11 @@ private:
     MediaTime totalFrameDelay() override { return MediaTime::zeroTime(); }
     GRefPtr<GstCaps> currentDemuxerCaps() const override;
     bool timeIsBuffered(float);
-#endif
 
 private:
     GRefPtr<GstElement> m_source;
-#if ENABLE(VIDEO_TRACK)
     GRefPtr<GstElement> m_textAppSink;
     GRefPtr<GstPad> m_textAppSinkPad;
-#endif
     float m_seekTime;
     bool m_changingRate;
     float m_endTime;
@@ -254,24 +272,21 @@ private:
     GstState m_requestedState;
     GRefPtr<GstElement> m_autoAudioSink;
     RefPtr<MediaPlayerRequestInstallMissingPluginsCallback> m_missingPluginsCallback;
-#if ENABLE(VIDEO_TRACK)
     Vector<RefPtr<AudioTrackPrivateGStreamer>> m_audioTracks;
     Vector<RefPtr<InbandTextTrackPrivateGStreamer>> m_textTracks;
     Vector<RefPtr<VideoTrackPrivateGStreamer>> m_videoTracks;
     RefPtr<InbandMetadataTextTrackPrivateGStreamer> m_chaptersTrack;
-#endif
-#if ENABLE(VIDEO_TRACK) && USE(GSTREAMER_MPEGTS)
+#if USE(GSTREAMER_MPEGTS)
     HashMap<AtomicString, RefPtr<InbandMetadataTextTrackPrivateGStreamer>> m_metadataTracks;
 #endif
-#if ENABLE(MEDIA_SOURCE)
     RefPtr<MediaSourcePrivateClient> m_mediaSource;
     bool isMediaSource() const { return m_mediaSource && WEBKIT_IS_MEDIA_SRC(m_source.get()); }
-#else
-    bool isMediaSource() const { return false; }
-#endif
 #if USE(GSTREAMER_GL)
     GstGLContext* m_glContext;
     GstGLDisplay* m_glDisplay;
+#endif
+#if ENABLE(ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA_V2)
+    BinarySemaphore m_drmKeySemaphore;
 #endif
     Mutex m_pendingAsyncOperationsLock;
     GList* m_pendingAsyncOperations;

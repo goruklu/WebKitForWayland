@@ -27,7 +27,7 @@
 #include "AudioTrackPrivateGStreamer.h"
 #include "GStreamerUtilities.h"
 #include "MediaDescription.h"
-#include "MediaPlayerPrivateGStreamer.h"
+#include "MediaPlayerPrivateGStreamerBase.h"
 #include "MediaSample.h"
 #include "MediaSourceGStreamer.h"
 #include "NotImplemented.h"
@@ -290,7 +290,7 @@ struct _WebKitMediaSrcPrivate
     GstEvent* seekEvent;
     int ongoingAppends;
 
-    WebCore::MediaPlayerPrivateGStreamer* mediaPlayerPrivate;
+    WebCore::MediaPlayerPrivateGStreamerBase* mediaPlayerPrivate;
     WebCore::MediaSourceClientGStreamer* mediaSourceClient;
 };
 
@@ -2238,7 +2238,7 @@ GstPad* webkit_media_src_get_text_pad(WebKitMediaSrc* src, guint i)
     return result;
 }
 
-void webkit_media_src_set_mediaplayerprivate(WebKitMediaSrc* src, WebCore::MediaPlayerPrivateGStreamer* mediaPlayerPrivate)
+void webkit_media_src_set_mediaplayerprivate(WebKitMediaSrc* src, WebCore::MediaPlayerPrivateGStreamerBase* mediaPlayerPrivate)
 {
     GST_OBJECT_LOCK(src);
     // Set to 0 on MediaPlayerPrivateGStreamer destruction, never a dangling pointer

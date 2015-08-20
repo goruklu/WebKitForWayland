@@ -34,7 +34,7 @@
 
 namespace WebCore {
 
-class MediaPlayerPrivateGStreamer;
+class MediaPlayerPrivateGStreamerBase;
 
 }
 
@@ -72,7 +72,7 @@ GType webkit_media_src_get_type(void);
 GstPad* webkit_media_src_get_audio_pad(WebKitMediaSrc* src, guint i);
 GstPad* webkit_media_src_get_video_pad(WebKitMediaSrc* src, guint i);
 GstPad* webkit_media_src_get_text_pad(WebKitMediaSrc* src, guint i);
-void webkit_media_src_set_mediaplayerprivate(WebKitMediaSrc* src, WebCore::MediaPlayerPrivateGStreamer* player);
+void webkit_media_src_set_mediaplayerprivate(WebKitMediaSrc* src, WebCore::MediaPlayerPrivateGStreamerBase* player);
 
 void webkit_media_src_set_seek_time(WebKitMediaSrc*, const MediaTime&);
 void webkit_media_src_segment_needed(WebKitMediaSrc*, StreamType);

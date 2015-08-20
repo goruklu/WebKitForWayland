@@ -496,6 +496,23 @@ MediaPlayer::ReadyState MediaPlayerPrivateGStreamerBase::readyState() const
     return m_readyState;
 }
 
+#if ENABLE(MEDIA_SOURCE)
+void MediaPlayerPrivateGStreamerBase::setReadyState(MediaPlayer::ReadyState)
+{
+    notImplemented();
+}
+
+void MediaPlayerPrivateGStreamerBase::waitForSeekCompleted()
+{
+    notImplemented();
+}
+
+void MediaPlayerPrivateGStreamerBase::seekCompleted()
+{
+    notImplemented();
+}
+#endif
+
 void MediaPlayerPrivateGStreamerBase::sizeChanged()
 {
     notImplemented();
