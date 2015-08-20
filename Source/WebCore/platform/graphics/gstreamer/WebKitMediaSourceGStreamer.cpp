@@ -846,9 +846,9 @@ static GstPadProbeReturn webKitWebSrcBufferAfterMultiqueueProbe(GstPad* pad, Gst
     GstPadProbeReturn result;
     GstBuffer* buffer = GST_BUFFER(info->data);
 
-    GST_OBJECT_LOCK(stream->parent->parent);
+    //GST_OBJECT_LOCK(stream->parent->parent);
     GstClockTime duration = stream->parent->parent->priv->duration;
-    GST_OBJECT_UNLOCK(stream->parent->parent);
+    //GST_OBJECT_UNLOCK(stream->parent->parent);
 
     // If the presentation time of this buffer is beyond the "logical" duration, synthesize EOS.
     // The "logical" duration may be shorter than the "physical" duration that the buffered data can provide,
@@ -1883,6 +1883,18 @@ bool MediaSourceClientGStreamer::append(PassRefPtr<SourceBufferPrivateGStreamer>
     // DEBUG
     dumpDataToDisk(data, length, sourceBufferPrivate.get());
 
+    if (source->segmentPending) {
+        g_printerr("Sending pending segment\n");
+        GstEvent* segmentEvent = gst_event_new_segment(&source->segment);
+        GRefPtr<GstPad> pad = gst_element_get_static_pad(source->demuxer, "sink");
+
+        gst_event_set_seqnum(segmentEvent, source->segmentSeqnum);
+        source->segmentSeqnum = gst_util_seqnum_next();
+        gst_pad_send_event(pad.get(), segmentEvent);
+
+        source->segmentPending = false;
+    }
+    
     ret = gst_app_src_push_buffer(GST_APP_SRC(source->src), buffer);
 
     bool ok = (ret == GST_FLOW_OK);
@@ -2015,19 +2027,19 @@ void MediaSourceClientGStreamer::flushAndEnqueueNonDisplayingSamples(Vector<RefP
     // gst_pad_send_event(pad.get(), gst_event_new_flush_start());
     // gst_pad_send_event(pad.get(), gst_event_new_flush_stop(TRUE));
 
+    // if (source->segmentPending) {
+    //     g_printerr("Sending pending segment\n");
+    //     GstEvent* segmentEvent = gst_event_new_segment(&source->segment);
+    //     GRefPtr<GstPad> pad = gst_element_get_static_pad(source->demuxer, "sink");
+
+    //     gst_event_set_seqnum(segmentEvent, source->segmentSeqnum);
+    //     source->segmentSeqnum = gst_util_seqnum_next();
+    //     gst_pad_send_event(pad.get(), segmentEvent);
+
+    //     source->segmentPending = false;
+    // }
+
     GstPad* demuxersrcpad = stream->demuxersrcpad;
-
-    if (source->segmentPending) {
-        g_printerr("Sending pending segment\n");
-        GstEvent *segmentEvent = gst_event_new_segment(&source->segment);
-
-        gst_event_set_seqnum(segmentEvent, source->segmentSeqnum);
-        source->segmentSeqnum = gst_util_seqnum_next();
-        gst_pad_push_event(stream->demuxersrcpad, segmentEvent);
-
-        source->segmentPending = false;
-    }
-
     GstPad* multiqueuesinkpad = gst_pad_get_peer(demuxersrcpad);
     for (Vector<RefPtr<MediaSample> >::iterator it = samples.begin(); it != samples.end(); ++it) {
         GStreamerMediaSample* sample = static_cast<GStreamerMediaSample*>(it->get());
@@ -2276,6 +2288,7 @@ void webkit_media_src_perform_seek(WebKitMediaSrc* src, gint64 position, float r
         //memcpy(&segment, &source->segment, sizeof(GstSegment));
         gst_segment_do_seek(&segment, rate, format, flags, start_type, start, stop_type, stop, &update);
 
+        source->segment = segment;
         g_printerr("update: %d\n", update);
 
         source->segmentPending = true;
