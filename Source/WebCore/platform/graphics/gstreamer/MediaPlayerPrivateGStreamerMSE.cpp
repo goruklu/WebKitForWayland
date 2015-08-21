@@ -32,6 +32,7 @@
 #include "MIMETypeRegistry.h"
 #include "MediaPlayer.h"
 #include "MediaPlayerRequestInstallMissingPluginsCallback.h"
+#include "MediaSample.h"
 #include "NotImplemented.h"
 #include "SecurityOrigin.h"
 #include "TimeRanges.h"
@@ -49,6 +50,7 @@
 #include "AudioTrackPrivateGStreamer.h"
 #include "InbandMetadataTextTrackPrivateGStreamer.h"
 #include "InbandTextTrackPrivateGStreamer.h"
+#include "SourceBufferPrivateGStreamer.h"
 #include "TextCombinerGStreamer.h"
 #include "TextSinkGStreamer.h"
 #include "VideoTrackPrivateGStreamer.h"
@@ -318,10 +320,13 @@ MediaPlayerPrivateGStreamerMSE::MediaPlayerPrivateGStreamerMSE(MediaPlayer* play
 #if ENABLE(ENCRYPTED_MEDIA) && USE(DXDRM)
     m_dxdrmSession = 0;
 #endif
+    printf("### %s: %p\n", __PRETTY_FUNCTION__, this); fflush(stdout);
 }
 
 MediaPlayerPrivateGStreamerMSE::~MediaPlayerPrivateGStreamerMSE()
 {
+    printf("### %s: %p\n", __PRETTY_FUNCTION__, this); fflush(stdout);
+
 #if ENABLE(ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA_V2)
     // Potentially unblock GStreamer thread for DRM license acquisition.
     m_drmKeySemaphore.signal();
@@ -1742,15 +1747,11 @@ void MediaPlayerPrivateGStreamerMSE::sourceChanged()
     m_source.clear();
     g_object_get(m_pipeline.get(), "source", &m_source.outPtr(), nullptr);
 
-    if (WEBKIT_IS_WEB_SRC(m_source.get()))
-        webKitWebSrcSetMediaPlayer(WEBKIT_WEB_SRC(m_source.get()), m_player);
-    if (m_mediaSource && WEBKIT_IS_MEDIA_SRC(m_source.get())) {
-        MediaSourceGStreamer::open(m_mediaSource.get(), WEBKIT_MEDIA_SRC(m_source.get()), this);
-        g_signal_connect(m_source.get(), "video-changed", G_CALLBACK(mediaPlayerPrivateVideoChangedCallback), this);
-        g_signal_connect(m_source.get(), "audio-changed", G_CALLBACK(mediaPlayerPrivateAudioChangedCallback), this);
-        g_signal_connect(m_source.get(), "text-changed", G_CALLBACK(mediaPlayerPrivateTextChangedCallback), this);
-        webkit_media_src_set_mediaplayerprivate(WEBKIT_MEDIA_SRC(m_source.get()), this);
-    }
+    MediaSourceGStreamer::open(m_mediaSource.get(), RefPtr<MediaPlayerPrivateGStreamerMSE>(this));
+    g_signal_connect(m_source.get(), "video-changed", G_CALLBACK(mediaPlayerPrivateVideoChangedCallback), this);
+    g_signal_connect(m_source.get(), "audio-changed", G_CALLBACK(mediaPlayerPrivateAudioChangedCallback), this);
+    g_signal_connect(m_source.get(), "text-changed", G_CALLBACK(mediaPlayerPrivateTextChangedCallback), this);
+    webkit_media_src_set_mediaplayerprivate(WEBKIT_MEDIA_SRC(m_source.get()), this);
 }
 
 void MediaPlayerPrivateGStreamerMSE::cancelLoad()
@@ -2733,6 +2734,82 @@ bool MediaPlayerPrivateGStreamerMSE::canSaveMediaData() const
     return false;
 }
 
+
+PassRefPtr<MediaSourceClientGStreamerMSE> MediaSourceClientGStreamerMSE::create(PassRefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate)
+{
+    return adoptRef(new MediaSourceClientGStreamerMSE(playerPrivate));
 }
+
+MediaSourceClientGStreamerMSE::MediaSourceClientGStreamerMSE(PassRefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate)
+    : RefCounted<MediaSourceClientGStreamerMSE>()
+    , m_playerPrivate(playerPrivate)
+{
+}
+
+MediaSourceClientGStreamerMSE::~MediaSourceClientGStreamerMSE()
+{
+    // TODO
+}
+
+MediaSourcePrivate::AddStatus MediaSourceClientGStreamerMSE::addSourceBuffer(PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, const ContentType&)
+{
+    // !!! TODO: Create the append pipelines here
+    return MediaSourcePrivate::Ok;
+}
+
+void MediaSourceClientGStreamerMSE::durationChanged(const MediaTime& duration)
+{
+    if (!duration.isValid() || duration.isPositiveInfinite() || duration.isNegativeInfinite())
+        return;
+    // TODO
+}
+
+bool MediaSourceClientGStreamerMSE::append(PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, const unsigned char* data, unsigned length)
+{
+    // TODO
+    return GST_FLOW_OK;
+}
+
+void MediaSourceClientGStreamerMSE::appendComplete(SourceBufferPrivateClient::AppendResult)
+{
+    // TODO
+}
+
+void MediaSourceClientGStreamerMSE::markEndOfStream(MediaSourcePrivate::EndOfStreamStatus)
+{
+    // TODO
+}
+
+void MediaSourceClientGStreamerMSE::removedFromMediaSource(PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate)
+{
+    // !!! TODO: Remove the append pipelines here
+}
+
+void MediaSourceClientGStreamerMSE::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString)
+{
+    // TODO
+}
+
+void MediaSourceClientGStreamerMSE::enqueueSample(PassRefPtr<MediaSample> prsample, AtomicString trackIDString)
+{
+    // TODO
+}
+
+void MediaSourceClientGStreamerMSE::didReceiveInitializationSegment(SourceBufferPrivateGStreamer* sourceBuffer, const SourceBufferPrivateClient::InitializationSegment& initializationSegment)
+{
+    sourceBuffer->didReceiveInitializationSegment(initializationSegment);
+}
+
+void MediaSourceClientGStreamerMSE::didReceiveSample(SourceBufferPrivateGStreamer* sourceBuffer, PassRefPtr<MediaSample> sample)
+{
+    sourceBuffer->didReceiveSample(sample);
+}
+
+void MediaSourceClientGStreamerMSE::didReceiveAllPendingSamples(SourceBufferPrivateGStreamer* sourceBuffer)
+{
+    sourceBuffer->didReceiveAllPendingSamples();
+}
+
+} // namespace WebCore
 
 #endif // USE(GSTREAMER)

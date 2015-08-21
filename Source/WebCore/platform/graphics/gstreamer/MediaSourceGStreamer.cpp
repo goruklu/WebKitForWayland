@@ -37,6 +37,7 @@
 
 #include "ContentType.h"
 #include "MediaPlayerPrivateGStreamer.h"
+#include "MediaPlayerPrivateGStreamerMSE.h"
 #include "NotImplemented.h"
 #include "SourceBufferPrivateGStreamer.h"
 #include "WebKitMediaSourceGStreamer.h"
@@ -47,19 +48,37 @@
 
 namespace WebCore {
 
+// TODO: Remove.
 void MediaSourceGStreamer::open(MediaSourcePrivateClient* mediaSource, WebKitMediaSrc* src, MediaPlayerPrivateGStreamerBase* playerPrivate)
 {
+    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+
+    notImplemented();
+
+    /*
     ASSERT(mediaSource);
     RefPtr<MediaSourceGStreamer> mediaSourcePrivate = adoptRef(new MediaSourceGStreamer(mediaSource, src));
     mediaSourcePrivate->m_playerPrivate = playerPrivate;
     mediaSource->setPrivateAndOpen(mediaSourcePrivate.releaseNonNull());
+    */
 }
 
-MediaSourceGStreamer::MediaSourceGStreamer(MediaSourcePrivateClient* mediaSource, WebKitMediaSrc* src)
+void MediaSourceGStreamer::open(MediaSourcePrivateClient* mediaSource, PassRefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate)
+{
+    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+
+    ASSERT(mediaSource);
+    RefPtr<MediaSourceGStreamer> mediaSourcePrivate = adoptRef(new MediaSourceGStreamer(mediaSource, playerPrivate));
+    mediaSourcePrivate->m_playerPrivate = playerPrivate.get();
+    mediaSource->setPrivateAndOpen(mediaSourcePrivate.releaseNonNull());
+}
+
+// TODO: Remove.
+MediaSourceGStreamer::MediaSourceGStreamer(MediaSourcePrivateClient* mediaSource, PassRefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate)
     : MediaSourcePrivate()
     , m_mediaSource(mediaSource)
 {
-    m_client = MediaSourceClientGStreamer::create(src);
+    m_client = MediaSourceClientGStreamerMSE::create(playerPrivate);
 }
 
 MediaSourceGStreamer::~MediaSourceGStreamer()
@@ -77,7 +96,7 @@ MediaSourceGStreamer::AddStatus MediaSourceGStreamer::addSourceBuffer(const Cont
     // if (MediaPlayerPrivateGStreamer::supportsType(parameters) == MediaPlayer::IsNotSupported)
     //     return NotSupported;
 
-    RefPtr<SourceBufferPrivateGStreamer> buffer = SourceBufferPrivateGStreamer::create(this, m_client, contentType);
+    RefPtr<SourceBufferPrivateGStreamer> buffer = SourceBufferPrivateGStreamer::create(this, PassRefPtr<MediaSourceClientGStreamerMSE>(m_client), contentType);
     m_sourceBuffers.add(buffer.get());
     sourceBufferPrivate = buffer;
     return m_client->addSourceBuffer(buffer, contentType);

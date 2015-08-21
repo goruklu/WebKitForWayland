@@ -36,6 +36,7 @@
 #if ENABLE(MEDIA_SOURCE) && USE(GSTREAMER)
 
 #include "ContentType.h"
+#include "MediaPlayerPrivateGStreamerMSE.h"
 #include "MediaSample.h"
 #include "MediaSourceGStreamer.h"
 #include "NotImplemented.h"
@@ -43,12 +44,12 @@
 
 namespace WebCore {
 
-PassRefPtr<SourceBufferPrivateGStreamer> SourceBufferPrivateGStreamer::create(MediaSourceGStreamer* mediaSource, PassRefPtr<MediaSourceClientGStreamer> client, const ContentType& contentType)
+PassRefPtr<SourceBufferPrivateGStreamer> SourceBufferPrivateGStreamer::create(MediaSourceGStreamer* mediaSource, PassRefPtr<MediaSourceClientGStreamerMSE> client, const ContentType& contentType)
 {
     return adoptRef(new SourceBufferPrivateGStreamer(mediaSource, client, contentType));
 }
 
-SourceBufferPrivateGStreamer::SourceBufferPrivateGStreamer(MediaSourceGStreamer* mediaSource, PassRefPtr<MediaSourceClientGStreamer> client, const ContentType& contentType)
+SourceBufferPrivateGStreamer::SourceBufferPrivateGStreamer(MediaSourceGStreamer* mediaSource, PassRefPtr<MediaSourceClientGStreamerMSE> client, const ContentType& contentType)
     : SourceBufferPrivate()
     , m_mediaSource(mediaSource)
     , m_type(contentType)

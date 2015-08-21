@@ -34,6 +34,8 @@
 #include <gst/pbutils/install-plugins.h>
 #include <wtf/Forward.h>
 #include <wtf/glib/GSourceWrap.h>
+#include <wtf/PassRefPtr.h>
+#include <wtf/RefPtr.h>
 
 #if USE(GSTREAMER_MPEGTS)
 #include <wtf/text/AtomicStringHash.h>
@@ -68,7 +70,8 @@ class InbandTextTrackPrivateGStreamer;
 class MediaPlayerRequestInstallMissingPluginsCallback;
 class VideoTrackPrivateGStreamer;
 
-class MediaPlayerPrivateGStreamerMSE : public MediaPlayerPrivateGStreamerBase {
+class MediaPlayerPrivateGStreamerMSE : public MediaPlayerPrivateGStreamerBase, public RefCounted<MediaPlayerPrivateGStreamerMSE> {
+    WTF_MAKE_NONCOPYABLE(MediaPlayerPrivateGStreamerMSE); WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit MediaPlayerPrivateGStreamerMSE(MediaPlayer*);
     ~MediaPlayerPrivateGStreamerMSE();
@@ -170,6 +173,9 @@ public:
     void setCDMSession(CDMSession*);
     void keyAdded();
 #endif
+
+    using RefCounted<MediaPlayerPrivateGStreamerMSE>::ref;
+    using RefCounted<MediaPlayerPrivateGStreamerMSE>::deref;
 
 private:
     static void getSupportedTypes(HashSet<String>&);
@@ -291,8 +297,42 @@ private:
     Mutex m_pendingAsyncOperationsLock;
     GList* m_pendingAsyncOperations;
     bool m_seekCompleted;
+
+    Vector<GRefPtr<GstElement> > m_append_pipelines;
 };
-}
+
+class ContentType;
+class SourceBufferPrivateGStreamer;
+
+class MediaSourceClientGStreamerMSE: public RefCounted<MediaSourceClientGStreamerMSE> {
+    public:
+        static PassRefPtr<MediaSourceClientGStreamerMSE> create(PassRefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate);
+        virtual ~MediaSourceClientGStreamerMSE();
+
+        // From MediaSourceGStreamer
+        MediaSourcePrivate::AddStatus addSourceBuffer(PassRefPtr<SourceBufferPrivateGStreamer>, const ContentType&);
+        void durationChanged(const MediaTime&);
+        void markEndOfStream(MediaSourcePrivate::EndOfStreamStatus);
+
+        // From SourceBufferPrivateGStreamer
+        bool append(PassRefPtr<SourceBufferPrivateGStreamer>, const unsigned char*, unsigned);
+        void appendComplete(SourceBufferPrivateClient::AppendResult);
+        void removedFromMediaSource(PassRefPtr<SourceBufferPrivateGStreamer>);
+        void flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString);
+        void enqueueSample(PassRefPtr<MediaSample> sample, AtomicString trackIDString);
+
+        // From our WebKitMediaSrc
+        void didReceiveInitializationSegment(SourceBufferPrivateGStreamer*, const SourceBufferPrivateClient::InitializationSegment&);
+        void didReceiveSample(SourceBufferPrivateGStreamer* sourceBuffer, PassRefPtr<MediaSample> sample);
+        void didReceiveAllPendingSamples(SourceBufferPrivateGStreamer* sourceBuffer);
+
+    private:
+        MediaSourceClientGStreamerMSE(PassRefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate);
+
+        RefPtr<MediaPlayerPrivateGStreamerMSE> m_playerPrivate;
+};
+
+} // namespace WebCore
 
 #endif // USE(GSTREAMER)
 #endif

@@ -36,6 +36,7 @@
 #if ENABLE(MEDIA_SOURCE) && USE(GSTREAMER)
 
 #include "ContentType.h"
+#include "MediaPlayerPrivateGStreamerMSE.h"
 #include "SourceBufferPrivate.h"
 #include "SourceBufferPrivateClient.h"
 #include "WebKitMediaSourceGStreamer.h"
@@ -47,7 +48,7 @@ class MediaSourceGStreamer;
 class SourceBufferPrivateGStreamer final : public SourceBufferPrivate {
 
 public:
-    static PassRefPtr<SourceBufferPrivateGStreamer> create(MediaSourceGStreamer*, PassRefPtr<MediaSourceClientGStreamer>, const ContentType&);
+    static PassRefPtr<SourceBufferPrivateGStreamer> create(MediaSourceGStreamer*, PassRefPtr<MediaSourceClientGStreamerMSE>, const ContentType&);
     virtual ~SourceBufferPrivateGStreamer();
 
     void clearMediaSource() { m_mediaSource = 0; }
@@ -71,8 +72,9 @@ public:
     virtual double timestampOffset() const;
 
 private:
-    SourceBufferPrivateGStreamer(MediaSourceGStreamer*, PassRefPtr<MediaSourceClientGStreamer>, const ContentType&);
+    SourceBufferPrivateGStreamer(MediaSourceGStreamer*, PassRefPtr<MediaSourceClientGStreamerMSE>, const ContentType&);
     friend class MediaSourceClientGStreamer;
+    friend class MediaSourceClientGStreamerMSE;
 
 #if ENABLE(VIDEO_TRACK)
     void didReceiveInitializationSegment(const SourceBufferPrivateClient::InitializationSegment&);
@@ -82,7 +84,7 @@ private:
 
     MediaSourceGStreamer* m_mediaSource;
     ContentType m_type;
-    RefPtr<MediaSourceClientGStreamer> m_client;
+    RefPtr<MediaSourceClientGStreamerMSE> m_client;
     SourceBufferPrivateClient* m_sourceBufferPrivateClient;
     bool m_aborted;
 };
