@@ -34,6 +34,7 @@
 #include <gst/pbutils/install-plugins.h>
 #include <wtf/Forward.h>
 #include <wtf/glib/GSourceWrap.h>
+#include <wtf/HashMap.h>
 #include <wtf/PassRefPtr.h>
 #include <wtf/RefPtr.h>
 
@@ -69,9 +70,13 @@ class InbandMetadataTextTrackPrivateGStreamer;
 class InbandTextTrackPrivateGStreamer;
 class MediaPlayerRequestInstallMissingPluginsCallback;
 class VideoTrackPrivateGStreamer;
+class MediaSourceClientGStreamerMSE;
 
 class MediaPlayerPrivateGStreamerMSE : public MediaPlayerPrivateGStreamerBase, public RefCounted<MediaPlayerPrivateGStreamerMSE> {
     WTF_MAKE_NONCOPYABLE(MediaPlayerPrivateGStreamerMSE); WTF_MAKE_FAST_ALLOCATED;
+
+    friend class MediaSourceClientGStreamerMSE;
+
 public:
     explicit MediaPlayerPrivateGStreamerMSE(MediaPlayer*);
     ~MediaPlayerPrivateGStreamerMSE();
@@ -298,7 +303,7 @@ private:
     GList* m_pendingAsyncOperations;
     bool m_seekCompleted;
 
-    Vector<GRefPtr<GstElement> > m_append_pipelines;
+    HashMap<RefPtr<SourceBufferPrivateGStreamer>, GstElement* > m_appendPipelinesMap;
 };
 
 class ContentType;

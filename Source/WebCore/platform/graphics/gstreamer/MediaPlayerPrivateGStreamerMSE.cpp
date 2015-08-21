@@ -2753,7 +2753,16 @@ MediaSourceClientGStreamerMSE::~MediaSourceClientGStreamerMSE()
 
 MediaSourcePrivate::AddStatus MediaSourceClientGStreamerMSE::addSourceBuffer(PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, const ContentType&)
 {
-    // !!! TODO: Create the append pipelines here
+    GstElement* appendPipeline = gst_pipeline_new(NULL);
+
+    // TODO: Initialize the pipeline elements
+    GstElement* appsrc;
+    GstElement* typefind;
+    GstElement* qtdemux;
+
+
+    m_playerPrivate->m_appendPipelinesMap.add(sourceBufferPrivate, appendPipeline);
+
     return MediaSourcePrivate::Ok;
 }
 
@@ -2782,7 +2791,11 @@ void MediaSourceClientGStreamerMSE::markEndOfStream(MediaSourcePrivate::EndOfStr
 
 void MediaSourceClientGStreamerMSE::removedFromMediaSource(PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate)
 {
-    // !!! TODO: Remove the append pipelines here
+    GstElement* appendPipeline = m_playerPrivate->m_appendPipelinesMap.get(sourceBufferPrivate);
+    m_playerPrivate->m_appendPipelinesMap.remove(sourceBufferPrivate);
+    gst_object_unref(appendPipeline);
+
+    // TODO: Deinitialize the pipeline here
 }
 
 void MediaSourceClientGStreamerMSE::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString)
