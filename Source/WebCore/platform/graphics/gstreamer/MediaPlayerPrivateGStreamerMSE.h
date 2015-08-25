@@ -332,10 +332,14 @@ class MediaSourceClientGStreamerMSE: public RefCounted<MediaSourceClientGStreame
         void didReceiveSample(SourceBufferPrivateGStreamer* sourceBuffer, PassRefPtr<MediaSample> sample);
         void didReceiveAllPendingSamples(SourceBufferPrivateGStreamer* sourceBuffer);
 
+        MediaTime duration();
+
     private:
         MediaSourceClientGStreamerMSE(PassRefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate);
 
         RefPtr<MediaPlayerPrivateGStreamerMSE> m_playerPrivate;
+        MediaTime m_duration;
+
 };
 
 } // namespace WebCore

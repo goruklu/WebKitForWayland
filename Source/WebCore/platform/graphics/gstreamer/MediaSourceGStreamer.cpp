@@ -63,7 +63,7 @@ void MediaSourceGStreamer::open(MediaSourcePrivateClient* mediaSource, WebKitMed
     */
 }
 
-void MediaSourceGStreamer::open(MediaSourcePrivateClient* mediaSource, PassRefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate)
+void MediaSourceGStreamer::open(MediaSourcePrivateClient* mediaSource, RefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate)
 {
     printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
 

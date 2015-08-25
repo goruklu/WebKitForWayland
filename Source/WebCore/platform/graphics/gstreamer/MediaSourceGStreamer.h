@@ -53,7 +53,7 @@ class PlatformTimeRanges;
 class MediaSourceGStreamer : public MediaSourcePrivate {
 public:
     static void open(MediaSourcePrivateClient*, WebKitMediaSrc*, MediaPlayerPrivateGStreamerBase*);
-    static void open(MediaSourcePrivateClient*, PassRefPtr<MediaPlayerPrivateGStreamerMSE>);
+    static void open(MediaSourcePrivateClient*, RefPtr<MediaPlayerPrivateGStreamerMSE>);
     virtual ~MediaSourceGStreamer();
 
     MediaSourceClientGStreamerMSE& client() const { return *m_client; }
