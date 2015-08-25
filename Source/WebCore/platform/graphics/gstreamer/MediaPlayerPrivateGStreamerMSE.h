@@ -71,6 +71,7 @@ class InbandTextTrackPrivateGStreamer;
 class MediaPlayerRequestInstallMissingPluginsCallback;
 class VideoTrackPrivateGStreamer;
 class MediaSourceClientGStreamerMSE;
+class AppendPipeline;
 
 class MediaPlayerPrivateGStreamerMSE : public MediaPlayerPrivateGStreamerBase, public RefCounted<MediaPlayerPrivateGStreamerMSE> {
     WTF_MAKE_NONCOPYABLE(MediaPlayerPrivateGStreamerMSE); WTF_MAKE_FAST_ALLOCATED;
@@ -303,7 +304,7 @@ private:
     GList* m_pendingAsyncOperations;
     bool m_seekCompleted;
 
-    HashMap<RefPtr<SourceBufferPrivateGStreamer>, GstElement* > m_appendPipelinesMap;
+    HashMap<RefPtr<SourceBufferPrivateGStreamer>, RefPtr<AppendPipeline> > m_appendPipelinesMap;
 };
 
 class ContentType;
@@ -315,14 +316,14 @@ class MediaSourceClientGStreamerMSE: public RefCounted<MediaSourceClientGStreame
         virtual ~MediaSourceClientGStreamerMSE();
 
         // From MediaSourceGStreamer
-        MediaSourcePrivate::AddStatus addSourceBuffer(PassRefPtr<SourceBufferPrivateGStreamer>, const ContentType&);
+        MediaSourcePrivate::AddStatus addSourceBuffer(RefPtr<SourceBufferPrivateGStreamer>, const ContentType&);
         void durationChanged(const MediaTime&);
         void markEndOfStream(MediaSourcePrivate::EndOfStreamStatus);
 
         // From SourceBufferPrivateGStreamer
         bool append(PassRefPtr<SourceBufferPrivateGStreamer>, const unsigned char*, unsigned);
         void appendComplete(SourceBufferPrivateClient::AppendResult);
-        void removedFromMediaSource(PassRefPtr<SourceBufferPrivateGStreamer>);
+        void removedFromMediaSource(RefPtr<SourceBufferPrivateGStreamer>);
         void flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString);
         void enqueueSample(PassRefPtr<MediaSample> sample, AtomicString trackIDString);
 
