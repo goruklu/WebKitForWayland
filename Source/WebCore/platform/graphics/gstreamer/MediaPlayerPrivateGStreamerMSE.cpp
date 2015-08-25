@@ -2764,94 +2764,94 @@ static void appendPipelineAppSinkEOS(GstElement*, AppendPipeline*);
 class AppendPipeline : public RefCounted<AppendPipeline> {
 public:
     AppendPipeline(PassRefPtr<MediaSourceClientGStreamerMSE> mediaSourceClient, PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate)
-        : mediaSourceClient(mediaSourceClient)
-        , sourceBufferPrivate(sourceBufferPrivate)
-        , appsink(NULL)
-        , noDataToDecodeTimeoutTag(0)
+        : m_mediaSourceClient(mediaSourceClient)
+        , m_sourceBufferPrivate(sourceBufferPrivate)
+        , m_appsink(NULL)
+        , m_noDataToDecodeTimeoutTag(0)
     {
         printf("### %s %p\n", __PRETTY_FUNCTION__, this); fflush(stdout);
-        pipeline = gst_pipeline_new(NULL);
+        m_pipeline = gst_pipeline_new(NULL);
 
-        appsrc = gst_element_factory_make("appsrc", NULL);
-        typefind = gst_element_factory_make("typefind", NULL);
-        qtdemux = gst_element_factory_make("qtdemux", NULL);
+        m_appsrc = gst_element_factory_make("appsrc", NULL);
+        m_typefind = gst_element_factory_make("typefind", NULL);
+        m_qtdemux = gst_element_factory_make("qtdemux", NULL);
 
         // These signals won't be connected outside of the lifetime of "this".
-        g_signal_connect(qtdemux, "pad-added", G_CALLBACK(appendPipelineDemuxerPadAdded), this);
-        g_signal_connect(qtdemux, "pad-removed", G_CALLBACK(appendPipelineDemuxerPadRemoved), this);
+        g_signal_connect(m_qtdemux, "pad-added", G_CALLBACK(appendPipelineDemuxerPadAdded), this);
+        g_signal_connect(m_qtdemux, "pad-removed", G_CALLBACK(appendPipelineDemuxerPadRemoved), this);
 
         // Add_many will take ownership of a reference. Request one ref more for ourselves.
-        gst_object_ref(appsrc);
-        gst_object_ref(typefind);
-        gst_object_ref(qtdemux);
+        gst_object_ref(m_appsrc);
+        gst_object_ref(m_typefind);
+        gst_object_ref(m_qtdemux);
 
-        gst_bin_add_many(GST_BIN(pipeline), appsrc, typefind, qtdemux, NULL);
-        gst_element_link_many(appsrc, typefind, qtdemux, NULL);
+        gst_bin_add_many(GST_BIN(m_pipeline), m_appsrc, m_typefind, m_qtdemux, NULL);
+        gst_element_link_many(m_appsrc, m_typefind, m_qtdemux, NULL);
 
-        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
 
         {
             static unsigned int i;
             WTF::String  dotFileName = String::format("create-%u", i++);
-            gst_debug_bin_to_dot_file(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
+            gst_debug_bin_to_dot_file(GST_BIN(m_pipeline), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
         }
     };
 
     virtual ~AppendPipeline()
     {
         printf("### %s %p\n", __PRETTY_FUNCTION__, this); fflush(stdout);
-        if (noDataToDecodeTimeoutTag) {
-            printf("### %s: noDataToDecodeTimeoutTag=%u\n", __PRETTY_FUNCTION__, noDataToDecodeTimeoutTag); fflush(stdout);
+        if (m_noDataToDecodeTimeoutTag) {
+            printf("### %s: m_noDataToDecodeTimeoutTag=%u\n", __PRETTY_FUNCTION__, m_noDataToDecodeTimeoutTag); fflush(stdout);
             // TODO: Maybe notify appendComplete here?
-            g_source_remove(noDataToDecodeTimeoutTag);
-            noDataToDecodeTimeoutTag = 0;
+            g_source_remove(m_noDataToDecodeTimeoutTag);
+            m_noDataToDecodeTimeoutTag = 0;
         }
 
-        if (pipeline) {
-            gst_element_set_state (pipeline, GST_STATE_NULL);
-            gst_object_unref(pipeline);
-            pipeline = NULL;
+        if (m_pipeline) {
+            gst_element_set_state (m_pipeline, GST_STATE_NULL);
+            gst_object_unref(m_pipeline);
+            m_pipeline = NULL;
         }
 
-        if (appsrc) {
-            gst_object_unref(appsrc);
-            appsrc = NULL;
+        if (m_appsrc) {
+            gst_object_unref(m_appsrc);
+            m_appsrc = NULL;
         }
 
-        if (typefind) {
-            gst_object_unref(typefind);
-            typefind = NULL;
+        if (m_typefind) {
+            gst_object_unref(m_typefind);
+            m_typefind = NULL;
         }
 
-        if (qtdemux) {
-            g_signal_handlers_disconnect_by_func(qtdemux, (gpointer)appendPipelineDemuxerPadAdded, this);
-            g_signal_handlers_disconnect_by_func(qtdemux, (gpointer)appendPipelineDemuxerPadRemoved, this);
+        if (m_qtdemux) {
+            g_signal_handlers_disconnect_by_func(m_qtdemux, (gpointer)appendPipelineDemuxerPadAdded, this);
+            g_signal_handlers_disconnect_by_func(m_qtdemux, (gpointer)appendPipelineDemuxerPadRemoved, this);
 
-            gst_object_unref(qtdemux);
-            qtdemux = NULL;
+            gst_object_unref(m_qtdemux);
+            m_qtdemux = NULL;
         }
 
-        if (appsink) {
-            g_signal_handlers_disconnect_by_func(appsink, (gpointer)appendPipelineAppSinkNewSample, this);
+        if (m_appsink) {
+            g_signal_handlers_disconnect_by_func(m_appsink, (gpointer)appendPipelineAppSinkNewSample, this);
 
-            gst_object_unref(appsink);
-            appsink = NULL;
+            gst_object_unref(m_appsink);
+            m_appsink = NULL;
         }
     };
 
     void demuxerPadAdded(GstPad* demuxersrcpad)
     {
         printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
-        if (!appsink) {
-            appsink = gst_element_factory_make("appsink", NULL);
-            gst_app_sink_set_emit_signals(GST_APP_SINK(appsink), TRUE);
-            g_signal_connect(appsink, "new-sample", G_CALLBACK(appendPipelineAppSinkNewSample), this);
-            g_signal_connect(appsink, "eos", G_CALLBACK(appendPipelineAppSinkEOS), this);
+        if (!m_appsink) {
+            m_appsink = gst_element_factory_make("appsink", NULL);
+            gst_app_sink_set_emit_signals(GST_APP_SINK(m_appsink), TRUE);
+            g_signal_connect(m_appsink, "new-sample", G_CALLBACK(appendPipelineAppSinkNewSample), this);
+            g_signal_connect(m_appsink, "eos", G_CALLBACK(appendPipelineAppSinkEOS), this);
 
-            gst_object_ref(appsink);
-            gst_bin_add(GST_BIN(pipeline), appsink);
+            gst_object_ref(m_appsink);
+            gst_bin_add(GST_BIN(m_pipeline), m_appsink);
         }
-        GstPad* sinkpad = gst_element_get_static_pad(appsink, "sink");
+        GstPad* sinkpad = gst_element_get_static_pad(m_appsink, "sink");
         // Only one Stream per demuxer is supported.
         ASSERT(!gst_pad_is_linked(sinkpad));
         gst_pad_link(demuxersrcpad, sinkpad);
@@ -2860,15 +2860,15 @@ public:
         {
             static unsigned int i;
             WTF::String  dotFileName = String::format("pad-added-%u", i++);
-            gst_debug_bin_to_dot_file(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
+            gst_debug_bin_to_dot_file(GST_BIN(m_pipeline), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
         }
     }
 
     void demuxerPadRemoved(GstPad*)
     {
         printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
-        if (appsink)
-            gst_element_unlink(qtdemux, appsink);
+        if (m_appsink)
+            gst_element_unlink(m_qtdemux, m_appsink);
     }
 
     void appSinkNewSample()
@@ -2876,22 +2876,22 @@ public:
         printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
     }
 
-    RefPtr<MediaSourceClientGStreamerMSE> mediaSourceClient;
-    RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate;
+    RefPtr<MediaSourceClientGStreamerMSE> m_mediaSourceClient;
+    RefPtr<SourceBufferPrivateGStreamer> m_sourceBufferPrivate;
 
-    GstElement* pipeline;
-    GstElement* appsrc;
-    GstElement* typefind;
-    GstElement* qtdemux;
+    GstElement* m_pipeline;
+    GstElement* m_appsrc;
+    GstElement* m_typefind;
+    GstElement* m_qtdemux;
 
     // The demuxer has one src Stream only.
-    GstElement* appsink;
+    GstElement* m_appsink;
 
     // Some appended data are only headers and don't generate any
     // useful stream data for decoding. This is detected with a
     // timeout and reported to the upper layers, so update/updateend
     // can be generated and the append operation doesn't block.
-    guint noDataToDecodeTimeoutTag;
+    guint m_noDataToDecodeTimeoutTag;
 };
 
 static void appendPipelineDemuxerPadAdded(GstElement*, GstPad* demuxersrcpad, AppendPipeline* ap)
@@ -2904,7 +2904,7 @@ static void appendPipelineDemuxerPadAdded(GstElement*, GstPad* demuxersrcpad, Ap
 
 static gboolean appendPipelineDemuxerPadAddedMainThread(DemuxerPadInfo* info)
 {
-    if (info->ap->qtdemux)
+    if (info->ap->m_qtdemux)
         info->ap->demuxerPadAdded(info->pad);
     delete info;
     return G_SOURCE_REMOVE;
@@ -2920,7 +2920,7 @@ static void appendPipelineDemuxerPadRemoved(GstElement*, GstPad* demuxersrcpad, 
 
 static gboolean appendPipelineDemuxerPadRemovedMainThread(DemuxerPadInfo* info)
 {
-    if (info->ap->qtdemux)
+    if (info->ap->m_qtdemux)
         info->ap->demuxerPadRemoved(info->pad);
     delete info;
     return G_SOURCE_REMOVE;
@@ -2943,8 +2943,8 @@ static void appendPipelineAppSinkEOS(GstElement*, AppendPipeline*)
 static gboolean appendPipelineNoDataToDecodeTimeout(AppendPipeline* ap)
 {
     printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
-    ap->noDataToDecodeTimeoutTag = 0;
-    ap->mediaSourceClient->didReceiveAllPendingSamples(ap->sourceBufferPrivate.get());
+    ap->m_noDataToDecodeTimeoutTag = 0;
+    ap->m_mediaSourceClient->didReceiveAllPendingSamples(ap->m_sourceBufferPrivate.get());
     return G_SOURCE_REMOVE;
 }
 
@@ -2961,7 +2961,7 @@ MediaSourceClientGStreamerMSE::MediaSourceClientGStreamerMSE(PassRefPtr<MediaPla
 
 MediaSourceClientGStreamerMSE::~MediaSourceClientGStreamerMSE()
 {
-    // TODO: cancel noDataToDecodeTimeoutTag if active and perform appendComplete()
+    // TODO: cancel m_noDataToDecodeTimeoutTag if active and perform appendComplete()
 }
 
 MediaSourcePrivate::AddStatus MediaSourceClientGStreamerMSE::addSourceBuffer(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, const ContentType&)
@@ -2992,13 +2992,13 @@ bool MediaSourceClientGStreamerMSE::append(PassRefPtr<SourceBufferPrivateGStream
     GstBuffer* buffer = gst_buffer_new_and_alloc(length);
     gst_buffer_fill(buffer, 0, data, length);
 
-    ap->noDataToDecodeTimeoutTag = g_timeout_add(1000, GSourceFunc(appendPipelineNoDataToDecodeTimeout), ap.get());
+    ap->m_noDataToDecodeTimeoutTag = g_timeout_add(1000, GSourceFunc(appendPipelineNoDataToDecodeTimeout), ap.get());
 
-    GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(ap->appsrc), buffer);
+    GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(ap->m_appsrc), buffer);
     {
         static unsigned int i;
         WTF::String  dotFileName = String::format("append-%u", i++);
-        gst_debug_bin_to_dot_file(GST_BIN(ap->pipeline), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
+        gst_debug_bin_to_dot_file(GST_BIN(ap->m_pipeline), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
     }
 
     return (ret == GST_FLOW_OK);
@@ -3018,7 +3018,7 @@ void MediaSourceClientGStreamerMSE::removedFromMediaSource(RefPtr<SourceBufferPr
 {
     RefPtr<AppendPipeline> ap = m_playerPrivate->m_appendPipelinesMap.get(sourceBufferPrivate);
     m_playerPrivate->m_appendPipelinesMap.remove(sourceBufferPrivate);
-    gst_element_set_state (ap->pipeline, GST_STATE_NULL);
+    gst_element_set_state (ap->m_pipeline, GST_STATE_NULL);
     // AppendPipeline destructor will take care of cleaning up when appropriate.
 }
 
