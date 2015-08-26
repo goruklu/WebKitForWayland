@@ -235,6 +235,9 @@ private:
     GRefPtr<GstCaps> currentDemuxerCaps() const override;
     bool timeIsBuffered(float);
 
+    void setMediaSourceClient(PassRefPtr<MediaSourceClientGStreamerMSE>);
+    RefPtr<MediaSourceClientGStreamerMSE> mediaSourceClient();
+
 private:
     GRefPtr<GstElement> m_source;
     GRefPtr<GstElement> m_textAppSink;
@@ -305,6 +308,7 @@ private:
     bool m_seekCompleted;
 
     HashMap<RefPtr<SourceBufferPrivateGStreamer>, RefPtr<AppendPipeline> > m_appendPipelinesMap;
+    RefPtr<MediaSourceClientGStreamerMSE> m_mediaSourceClient;
 };
 
 class ContentType;
