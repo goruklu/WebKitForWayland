@@ -27,6 +27,7 @@
 
 #include "GRefPtrGStreamer.h"
 #include "MediaPlayerPrivateGStreamerBase.h"
+#include "MediaSample.h"
 #include "Timer.h"
 
 #include <glib.h>
@@ -238,6 +239,8 @@ private:
     void setMediaSourceClient(PassRefPtr<MediaSourceClientGStreamerMSE>);
     RefPtr<MediaSourceClientGStreamerMSE> mediaSourceClient();
 
+    RefPtr<AppendPipeline> appendPipelineByTrackId(const AtomicString& trackId);
+
 private:
     GRefPtr<GstElement> m_source;
     GRefPtr<GstElement> m_textAppSink;
@@ -308,7 +311,40 @@ private:
     bool m_seekCompleted;
 
     HashMap<RefPtr<SourceBufferPrivateGStreamer>, RefPtr<AppendPipeline> > m_appendPipelinesMap;
+    RefPtr<PlaybackPipeline> m_playbackPipeline;
     RefPtr<MediaSourceClientGStreamerMSE> m_mediaSourceClient;
+};
+
+class GStreamerMediaSample : public MediaSample
+{
+private:
+    MediaTime m_pts, m_dts, m_duration;
+    AtomicString m_trackID;
+    size_t m_size;
+    GstBuffer* m_buffer;
+    FloatSize m_presentationSize;
+    MediaSample::SampleFlags m_flags;
+
+    GStreamerMediaSample(GstBuffer* buffer, const FloatSize& presentationSize, const AtomicString& trackID);
+
+public:
+    static PassRefPtr<GStreamerMediaSample> create(GstBuffer* buffer, const FloatSize& presentationSize, const AtomicString& trackID);
+    static PassRefPtr<GStreamerMediaSample> createFakeSample(MediaTime pts, MediaTime dts, MediaTime duration, const FloatSize& presentationSize, const AtomicString& trackID);
+
+    virtual ~GStreamerMediaSample();
+
+    MediaTime presentationTime() const { return m_pts; }
+    MediaTime decodeTime() const { return m_dts; }
+    MediaTime duration() const { return m_duration; }
+    AtomicString trackID() const { return m_trackID; }
+    size_t sizeInBytes() const { return m_size; }
+    GstBuffer* buffer() const { return m_buffer; }
+    FloatSize presentationSize() const { return m_presentationSize; }
+    void offsetTimestampsBy(const MediaTime&) { }
+    void setTimestamps(const MediaTime&, const MediaTime&) { }
+    SampleFlags flags() const { return m_flags; }
+    PlatformSample platformSample() { return PlatformSample(); }
+    void dump(PrintStream&) const {}
 };
 
 class ContentType;
@@ -337,13 +373,13 @@ class MediaSourceClientGStreamerMSE: public RefCounted<MediaSourceClientGStreame
         void didReceiveAllPendingSamples(SourceBufferPrivateGStreamer* sourceBuffer);
 
         MediaTime duration();
+        GRefPtr<WebKitMediaSrc> webKitMediaSrc();
 
     private:
         MediaSourceClientGStreamerMSE(PassRefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate);
 
         RefPtr<MediaPlayerPrivateGStreamerMSE> m_playerPrivate;
         MediaTime m_duration;
-
 };
 
 } // namespace WebCore

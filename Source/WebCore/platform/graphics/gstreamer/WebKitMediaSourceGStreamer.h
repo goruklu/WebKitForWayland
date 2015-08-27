@@ -93,32 +93,26 @@ class ContentType;
 class SourceBufferPrivateGStreamer;
 class MediaSourceGStreamer;
 
-class MediaSourceClientGStreamer: public RefCounted<MediaSourceClientGStreamer> {
+class PlaybackPipeline: public RefCounted<PlaybackPipeline> {
     public:
-        static PassRefPtr<MediaSourceClientGStreamer> create(WebKitMediaSrc*);
-        virtual ~MediaSourceClientGStreamer();
+        static PassRefPtr<PlaybackPipeline> create();
+        virtual ~PlaybackPipeline();
+
+        void setWebKitMediaSrc(WebKitMediaSrc*);
+        WebKitMediaSrc* webKitMediaSrc();
+
+        MediaSourcePrivate::AddStatus addSourceBuffer(PassRefPtr<SourceBufferPrivateGStreamer>);
+        void removeSourceBuffer(PassRefPtr<SourceBufferPrivateGStreamer>);
 
         // From MediaSourceGStreamer
-        MediaSourcePrivate::AddStatus addSourceBuffer(PassRefPtr<SourceBufferPrivateGStreamer>, const ContentType&);
-        void durationChanged(const MediaTime&);
         void markEndOfStream(MediaSourcePrivate::EndOfStreamStatus);
 
         // From SourceBufferPrivateGStreamer
-        bool append(PassRefPtr<SourceBufferPrivateGStreamer>, const unsigned char*, unsigned);
-        void appendComplete(SourceBufferPrivateClient::AppendResult);
-        void removedFromMediaSource(PassRefPtr<SourceBufferPrivateGStreamer>);
         void flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString);
         void enqueueSample(PassRefPtr<MediaSample> sample, AtomicString trackIDString);
 
-        // From our WebKitMediaSrc
-#if ENABLE(VIDEO_TRACK)
-        void didReceiveInitializationSegment(SourceBufferPrivateGStreamer*, const SourceBufferPrivateClient::InitializationSegment&);
-        void didReceiveSample(SourceBufferPrivateGStreamer* sourceBuffer, PassRefPtr<MediaSample> sample);
-        void didReceiveAllPendingSamples(SourceBufferPrivateGStreamer* sourceBuffer);
-#endif
-
     private:
-        MediaSourceClientGStreamer(WebKitMediaSrc*);
+        PlaybackPipeline();
         GRefPtr<WebKitMediaSrc> m_src;
 };
 

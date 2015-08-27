@@ -33,7 +33,6 @@
 #include "MediaDescription.h"
 #include "MediaPlayer.h"
 #include "MediaPlayerRequestInstallMissingPluginsCallback.h"
-#include "MediaSample.h"
 #include "NotImplemented.h"
 #include "SecurityOrigin.h"
 #include "TimeRanges.h"
@@ -245,11 +244,13 @@ static bool initializeGStreamerAndRegisterWebKitElements()
     if (!initializeGStreamer())
         return false;
 
+    /*
     GRefPtr<GstElementFactory> srcFactory = gst_element_factory_find("webkitwebsrc");
     if (!srcFactory) {
         GST_DEBUG_CATEGORY_INIT(webkit_media_player_debug, "webkitmediaplayer", 0, "WebKit media player");
         gst_element_register(0, "webkitwebsrc", GST_RANK_PRIMARY + 100, WEBKIT_TYPE_WEB_SRC);
     }
+    */
 
 #if ENABLE(ENCRYPTED_MEDIA)
     GRefPtr<GstElementFactory> cencDecryptorFactory = gst_element_factory_find("webkitcencdec");
@@ -418,8 +419,10 @@ void MediaPlayerPrivateGStreamerMSE::load(const String& urlString)
     if (url.isLocalFile())
         cleanURL = cleanURL.substring(0, url.pathEnd());
 
-    if (!m_pipeline)
+    if (!m_pipeline) {
         createGSTPlayBin();
+        m_playbackPipeline = PlaybackPipeline::create();
+    }
 
     ASSERT(m_pipeline);
 
@@ -1180,41 +1183,7 @@ void MediaPlayerPrivateGStreamerMSE::setPreservesPitch(bool preservesPitch)
 
 std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateGStreamerMSE::buffered() const
 {
-    if (isMediaSource())
-        return m_mediaSource->buffered();
-
-    auto timeRanges = std::make_unique<PlatformTimeRanges>();
-    if (m_errorOccured || isLiveStream())
-        return timeRanges;
-
-    float mediaDuration(duration());
-    if (!mediaDuration || std::isinf(mediaDuration))
-        return timeRanges;
-
-    GstQuery* query = gst_query_new_buffering(GST_FORMAT_PERCENT);
-
-    if (!gst_element_query(m_pipeline.get(), query)) {
-        gst_query_unref(query);
-        return timeRanges;
-    }
-
-    guint numBufferingRanges = gst_query_get_n_buffering_ranges(query);
-    for (guint index = 0; index < numBufferingRanges; index++) {
-        gint64 rangeStart = 0, rangeStop = 0;
-        if (gst_query_parse_nth_buffering_range(query, index, &rangeStart, &rangeStop))
-            timeRanges->add(MediaTime::createWithDouble((rangeStart * mediaDuration) / GST_FORMAT_PERCENT_MAX),
-                MediaTime::createWithDouble((rangeStop * mediaDuration) / GST_FORMAT_PERCENT_MAX));
-    }
-
-    // Fallback to the more general maxTimeLoaded() if no range has
-    // been found.
-    if (!timeRanges->length())
-        if (float loaded = maxTimeLoaded())
-            timeRanges->add(MediaTime::zeroTime(), MediaTime::createWithDouble(loaded));
-
-    gst_query_unref(query);
-
-    return timeRanges;
+    return m_mediaSource->buffered();
 }
 
 static StreamType getStreamType(GstElement* element)
@@ -1764,6 +1733,10 @@ void MediaPlayerPrivateGStreamerMSE::sourceChanged()
     m_source.clear();
     g_object_get(m_pipeline.get(), "source", &m_source.outPtr(), nullptr);
 
+    ASSERT(WEBKIT_IS_MEDIASRC(m_source.get()));
+
+    m_playbackPipeline->setWebKitMediaSrc(WEBKIT_MEDIA_SRC(m_source.get()));
+
     MediaSourceGStreamer::open(m_mediaSource.get(), RefPtr<MediaPlayerPrivateGStreamerMSE>(this));
     g_signal_connect(m_source.get(), "video-changed", G_CALLBACK(mediaPlayerPrivateVideoChangedCallback), this);
     g_signal_connect(m_source.get(), "audio-changed", G_CALLBACK(mediaPlayerPrivateAudioChangedCallback), this);
@@ -2023,6 +1996,25 @@ RefPtr<MediaSourceClientGStreamerMSE> MediaPlayerPrivateGStreamerMSE::mediaSourc
 {
     return m_mediaSourceClient;
 }
+
+RefPtr<AppendPipeline> MediaPlayerPrivateGStreamerMSE::appendPipelineByTrackId(const AtomicString& trackId)
+{
+    if (trackId == AtomicString()) {
+        printf("### %s: trackId is empty\n", __PRETTY_FUNCTION__); fflush(stdout);
+    }
+
+    ASSERT(!(trackId.isNull() || trackId.isEmpty()));
+
+    // ########### SOLVE A PROBLEM WITH FORWARD DECLARATION HERE
+    /*
+    for (HashMap<RefPtr<SourceBufferPrivateGStreamer>, RefPtr<AppendPipeline> >::iterator it = m_appendPipelinesMap.begin(); it != m_appendPipelinesMap.end(); ++it)
+        if (it->value->trackId() == trackId)
+            return it->value;
+    */
+
+    return RefPtr<AppendPipeline>(0);
+}
+
 
 void MediaPlayerPrivateGStreamerMSE::mediaLocationChanged(GstMessage* message)
 {
@@ -2823,79 +2815,56 @@ private:
     }
 };
 
-class GStreamerMediaSample : public MediaSample
+// class GStreamerMediaSample : public MediaSample
+GStreamerMediaSample::GStreamerMediaSample(GstBuffer* buffer, const FloatSize& presentationSize, const AtomicString& trackID)
+    : MediaSample()
+    , m_pts(MediaTime::zeroTime())
+    , m_dts(MediaTime::zeroTime())
+    , m_duration(MediaTime::zeroTime())
+    , m_trackID(trackID)
+    , m_size(0)
+    , m_buffer(0)
+    , m_presentationSize(presentationSize)
+    , m_flags(MediaSample::IsSync)
 {
-private:
-    MediaTime m_pts, m_dts, m_duration;
-    AtomicString m_trackID;
-    size_t m_size;
-    GstBuffer* m_buffer;
-    FloatSize m_presentationSize;
-    MediaSample::SampleFlags m_flags;
-    GStreamerMediaSample(GstBuffer* buffer, const FloatSize& presentationSize, const AtomicString& trackID)
-        : MediaSample()
-        , m_pts(MediaTime::zeroTime())
-        , m_dts(MediaTime::zeroTime())
-        , m_duration(MediaTime::zeroTime())
-        , m_trackID(trackID)
-        , m_size(0)
-        , m_buffer(0)
-        , m_presentationSize(presentationSize)
-        , m_flags(MediaSample::IsSync)
-    {
-        if (!buffer)
-            return;
-        if (GST_BUFFER_PTS_IS_VALID(buffer))
-            m_pts = MediaTime(GST_BUFFER_PTS(buffer), GST_SECOND);
-        if (GST_BUFFER_DTS_IS_VALID(buffer))
-            m_dts = MediaTime(GST_BUFFER_DTS(buffer), GST_SECOND);
-        if (GST_BUFFER_DURATION_IS_VALID(buffer))
-            m_duration = MediaTime(GST_BUFFER_DURATION(buffer), GST_SECOND);
-        m_size = gst_buffer_get_size(buffer);
-        m_buffer = gst_buffer_ref(buffer);
+    if (!buffer)
+        return;
+    if (GST_BUFFER_PTS_IS_VALID(buffer))
+        m_pts = MediaTime(GST_BUFFER_PTS(buffer), GST_SECOND);
+    if (GST_BUFFER_DTS_IS_VALID(buffer))
+        m_dts = MediaTime(GST_BUFFER_DTS(buffer), GST_SECOND);
+    if (GST_BUFFER_DURATION_IS_VALID(buffer))
+        m_duration = MediaTime(GST_BUFFER_DURATION(buffer), GST_SECOND);
+    m_size = gst_buffer_get_size(buffer);
+    m_buffer = gst_buffer_ref(buffer);
 
-        if (GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT))
-            m_flags = MediaSample::None;
+    if (GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT))
+        m_flags = MediaSample::None;
 
-        if (GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DECODE_ONLY))
-            m_flags = (MediaSample::SampleFlags) (m_flags | MediaSample::NonDisplaying);
-    }
+    if (GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DECODE_ONLY))
+        m_flags = (MediaSample::SampleFlags) (m_flags | MediaSample::NonDisplaying);
+}
 
-public:
-    static PassRefPtr<GStreamerMediaSample> create(GstBuffer* buffer, const FloatSize& presentationSize, const AtomicString& trackID)
-    {
-        return adoptRef(new GStreamerMediaSample(buffer, presentationSize, trackID));
-    }
+PassRefPtr<GStreamerMediaSample> GStreamerMediaSample::create(GstBuffer* buffer, const FloatSize& presentationSize, const AtomicString& trackID)
+{
+    return adoptRef(new GStreamerMediaSample(buffer, presentationSize, trackID));
+}
 
-    static PassRefPtr<GStreamerMediaSample> createFakeSample(MediaTime pts, MediaTime dts, MediaTime duration, const FloatSize& presentationSize, const AtomicString& trackID)
-    {
-        GStreamerMediaSample* s = new GStreamerMediaSample(0, presentationSize, trackID);
-        s->m_pts = pts;
-        s->m_dts = dts;
-        s->m_duration = duration;
-        s->m_flags = MediaSample::NonDisplaying;
-        return adoptRef(s);
-    }
+PassRefPtr<GStreamerMediaSample> GStreamerMediaSample::createFakeSample(MediaTime pts, MediaTime dts, MediaTime duration, const FloatSize& presentationSize, const AtomicString& trackID)
+{
+    GStreamerMediaSample* s = new GStreamerMediaSample(0, presentationSize, trackID);
+    s->m_pts = pts;
+    s->m_dts = dts;
+    s->m_duration = duration;
+    s->m_flags = MediaSample::NonDisplaying;
+    return adoptRef(s);
+}
 
-    virtual ~GStreamerMediaSample()
-    {
-        if (m_buffer)
-            gst_buffer_unref(m_buffer);
-    }
-
-    MediaTime presentationTime() const { return m_pts; }
-    MediaTime decodeTime() const { return m_dts; }
-    MediaTime duration() const { return m_duration; }
-    AtomicString trackID() const { return m_trackID; }
-    size_t sizeInBytes() const { return m_size; }
-    GstBuffer* buffer() const { return m_buffer; }
-    FloatSize presentationSize() const { return m_presentationSize; }
-    void offsetTimestampsBy(const MediaTime&) { }
-    void setTimestamps(const MediaTime&, const MediaTime&) { }
-    SampleFlags flags() const { return m_flags; }
-    PlatformSample platformSample() { return PlatformSample(); }
-    void dump(PrintStream&) const {}
-};
+GStreamerMediaSample::~GStreamerMediaSample()
+{
+    if (m_buffer)
+        gst_buffer_unref(m_buffer);
+}
 
 
 // Auxiliar to pass several parameters to appendPipelineDemuxerPadXXXMainThread().
@@ -2987,12 +2956,6 @@ public:
         gst_element_link_many(m_appsrc, m_typefind, m_qtdemux, NULL);
 
         gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
-
-        {
-            static unsigned int i;
-            WTF::String  dotFileName = String::format("create-%u", i++);
-            gst_debug_bin_to_dot_file(GST_BIN(m_pipeline), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
-        }
     };
 
     virtual ~AppendPipeline()
@@ -3265,7 +3228,8 @@ public:
         if (!(m_appendStage == Ongoing || m_appendStage == Sampling))
             return;
 
-        RefPtr<GStreamerMediaSample> mediaSample = WebCore::GStreamerMediaSample::create(gst_sample_get_buffer(sample), m_presentationSize, m_track->id());
+        AtomicString trackId(AppendPipeline::trackId());
+        RefPtr<GStreamerMediaSample> mediaSample = WebCore::GStreamerMediaSample::create(gst_sample_get_buffer(sample), m_presentationSize, trackId);
 
         // If we're beyond the duration, ignore this sample and the remaining ones.
         MediaTime duration = m_mediaSourceClient->duration();
@@ -3282,7 +3246,7 @@ public:
             mediaSample->presentationTime() <= timestampOffset + MediaTime::createWithDouble(0.1)) {
             RefPtr<WebCore::GStreamerMediaSample> fakeSample = WebCore::GStreamerMediaSample::createFakeSample(
                     timestampOffset, mediaSample->decodeTime(), mediaSample->presentationTime() - timestampOffset, mediaSample->presentationSize(),
-                    m_track->id());
+                    trackId);
             m_mediaSourceClient->didReceiveSample(m_sourceBufferPrivate.get(), fakeSample);
         }
 
@@ -3323,6 +3287,13 @@ public:
         m_mediaSourceClient->didReceiveInitializationSegment(m_sourceBufferPrivate.get(), initializationSegment);
     }
 
+    AtomicString trackId()
+    {
+        if (!m_track)
+            return AtomicString();
+
+        return m_track->id();
+    }
 
     RefPtr<MediaSourceClientGStreamerMSE> m_mediaSourceClient;
     RefPtr<SourceBufferPrivateGStreamer> m_sourceBufferPrivate;
@@ -3372,12 +3343,6 @@ static void appendPipelineDemuxerPadAdded(GstElement*, GstPad* demuxersrcpad, Ap
     ASSERT(!gst_pad_is_linked(sinkpad));
     gst_pad_link(demuxersrcpad, sinkpad);
     gst_object_unref(sinkpad);
-
-    {
-        static unsigned int i;
-        WTF::String  dotFileName = String::format("pad-added-%u", i++);
-        gst_debug_bin_to_dot_file(GST_BIN(ap->m_pipeline), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
-    }
 
     if (WTF::isMainThread())
         ap->demuxerPadAdded(demuxersrcpad);
@@ -3441,12 +3406,6 @@ static gboolean appendPipelineNoDataToDecodeTimeout(AppendPipeline* ap)
 {
     printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
 
-    {
-        static unsigned int i;
-        WTF::String  dotFileName = String::format("nodatatodecode-%u", i++);
-        gst_debug_bin_to_dot_file(GST_BIN(ap->m_pipeline), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
-    }
-
     ap->setAppendStage(AppendPipeline::NoDataToDecode);
     return G_SOURCE_REMOVE;
 }
@@ -3455,11 +3414,6 @@ static gboolean appendPipelineLastSampleTimeout(AppendPipeline* ap)
 {
     printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
 
-    {
-        static unsigned int i;
-        WTF::String  dotFileName = String::format("nodatatodecode-%u", i++);
-        gst_debug_bin_to_dot_file(GST_BIN(ap->m_pipeline), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
-    }
     ap->setAppendStage(AppendPipeline::LastSample);
     return G_SOURCE_REMOVE;
 }
@@ -3489,7 +3443,9 @@ MediaSourcePrivate::AddStatus MediaSourceClientGStreamerMSE::addSourceBuffer(Ref
     if (!m_playerPrivate->mediaSourceClient())
         m_playerPrivate->setMediaSourceClient(ap->m_mediaSourceClient);
 
-    return MediaSourcePrivate::Ok;
+    ASSERT(m_playerPrivate->m_playbackPipeline);
+
+    return m_playerPrivate->m_playbackPipeline->addSourceBuffer(sourceBufferPrivate);
 }
 
 MediaTime MediaSourceClientGStreamerMSE::duration()
@@ -3518,7 +3474,20 @@ bool MediaSourceClientGStreamerMSE::append(PassRefPtr<SourceBufferPrivateGStream
     RefPtr<AppendPipeline> ap = m_playerPrivate->m_appendPipelinesMap.get(sourceBufferPrivate);
 
     // TODO: Manage aborts?
+    /*
+    // Reset parser state after an abort
+    if (aborted) {
+        if (source->demuxer) {
+            GstState state, pending;
+            gst_element_get_state(GST_ELEMENT(source->demuxer), &state, &pending, 250 * GST_NSECOND);
 
+            GstState backup = (pending == GST_STATE_VOID_PENDING)?state:pending;
+            printf("### %s: Abort. Resetting demuxer by changing state %d -> %d -> %d\n", __PRETTY_FUNCTION__, state, backup, state); fflush(stdout);
+            gst_element_set_state(GST_ELEMENT(source->demuxer), GST_STATE_READY);
+            gst_element_set_state(GST_ELEMENT(source->demuxer), backup);
+        }
+    }
+    */
 
     GstBuffer* buffer = gst_buffer_new_and_alloc(length);
     gst_buffer_fill(buffer, 0, data, length);
@@ -3526,11 +3495,6 @@ bool MediaSourceClientGStreamerMSE::append(PassRefPtr<SourceBufferPrivateGStream
     ap->setAppendStage(AppendPipeline::Ongoing);
 
     GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(ap->m_appsrc), buffer);
-    {
-        static unsigned int i;
-        WTF::String  dotFileName = String::format("append-%u", i++);
-        gst_debug_bin_to_dot_file(GST_BIN(ap->m_pipeline), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
-    }
 
     return (ret == GST_FLOW_OK);
 }
@@ -3553,11 +3517,20 @@ void MediaSourceClientGStreamerMSE::removedFromMediaSource(RefPtr<SourceBufferPr
     if (m_playerPrivate->m_appendPipelinesMap.isEmpty())
         m_playerPrivate->setMediaSourceClient(RefPtr<MediaSourceClientGStreamerMSE>(this));
     // AppendPipeline destructor will take care of cleaning up when appropriate.
+
+    ASSERT(m_playerPrivate->m_playbackPipeline);
+
+    m_playerPrivate->m_playbackPipeline->removeSourceBuffer(sourceBufferPrivate);
 }
 
 void MediaSourceClientGStreamerMSE::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString)
 {
     // TODO
+    // !!!!!!!!!!!!!!!!!!!!! CONTINUE HERE
+    // ##### Use MediaPlayerPrivateGStreamerMSE::appendPipelineByTrackId() to get the right track info,
+    //       SourceBufferPrivateGStreamer or whatever is needed to find the right Stream to append in
+    //       WebKitMediaSrc. Change PlaybackPipeline::flushAndEnqueueNonDisplayingSamples() to take a
+    //       more comfortable track identifier instead of the useless AtomicString.
 }
 
 void MediaSourceClientGStreamerMSE::enqueueSample(PassRefPtr<MediaSample> prsample, AtomicString trackIDString)
@@ -3579,6 +3552,15 @@ void MediaSourceClientGStreamerMSE::didReceiveAllPendingSamples(SourceBufferPriv
 {
     printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
     sourceBuffer->didReceiveAllPendingSamples();
+}
+
+GRefPtr<WebKitMediaSrc> MediaSourceClientGStreamerMSE::webKitMediaSrc()
+{
+    WebKitMediaSrc* source = WEBKIT_MEDIA_SRC(m_playerPrivate->m_source.get());
+
+    ASSERT(WEBKIT_IS_MEDIA_SRC(source));
+
+    return GRefPtr<WebKitMediaSrc>(source);
 }
 
 } // namespace WebCore

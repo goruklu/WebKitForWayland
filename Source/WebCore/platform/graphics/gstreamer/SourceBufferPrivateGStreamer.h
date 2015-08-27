@@ -73,7 +73,6 @@ public:
 
 private:
     SourceBufferPrivateGStreamer(MediaSourceGStreamer*, PassRefPtr<MediaSourceClientGStreamerMSE>, const ContentType&);
-    friend class MediaSourceClientGStreamer;
     friend class MediaSourceClientGStreamerMSE;
 
 #if ENABLE(VIDEO_TRACK)
