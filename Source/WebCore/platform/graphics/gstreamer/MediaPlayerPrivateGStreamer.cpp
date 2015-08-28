@@ -1181,11 +1181,11 @@ std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateGStreamer::buffered() cons
 #if ENABLE(MEDIA_SOURCE)
 static StreamType getStreamType(GstElement* element)
 {
-    g_return_val_if_fail(GST_IS_ELEMENT(element), STREAM_TYPE_UNKNOWN);
+    g_return_val_if_fail(GST_IS_ELEMENT(element), Unknown);
 
     GstIterator* it;
     GValue item = G_VALUE_INIT;
-    StreamType result = STREAM_TYPE_UNKNOWN;
+    StreamType result = Unknown;
 
     it = gst_element_iterate_sink_pads(element);
 
@@ -1201,13 +1201,13 @@ static StreamType getStreamType(GstElement* element)
                         // Look for "audio", "video", "text"
                         switch (mediatype[0]) {
                         case 'a':
-                            result = STREAM_TYPE_AUDIO;
+                            result = Audio;
                             break;
                         case 'v':
-                            result = STREAM_TYPE_VIDEO;
+                            result = Video;
                             break;
                         case 't':
-                            result = STREAM_TYPE_TEXT;
+                            result = Text;
                             break;
                         default:
                             break;
@@ -1422,7 +1422,7 @@ gboolean MediaPlayerPrivateGStreamer::handleMessage(GstMessage* message)
     case GST_MESSAGE_RESET_TIME:
         if (m_source && WEBKIT_IS_MEDIA_SRC(m_source.get())) {
             StreamType streamType = getStreamType(GST_ELEMENT(GST_MESSAGE_SRC(message)));
-            if (streamType == STREAM_TYPE_AUDIO || streamType == STREAM_TYPE_VIDEO)
+            if (streamType == Audio || streamType == Video)
                 webkit_media_src_segment_needed(WEBKIT_MEDIA_SRC(m_source.get()), streamType);
         }
         break;

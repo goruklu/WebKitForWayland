@@ -58,7 +58,7 @@ struct _Stream
 {
     Source* parent;
 
-    StreamType type;
+    WebCore::StreamType type;
 
     // Might be 0, e.g. for VP8/VP9
     GstElement *parser;
@@ -88,7 +88,9 @@ struct _Source {
     GstElement* demuxer;
     GstElement* multiqueue;
 */
-    Vector<Stream*> streams;
+
+    // In the future there could be several Streams per Source.
+    Stream* stream;
 
     // We expose everything when
     // all sources are noMorePads
@@ -428,9 +430,9 @@ static const gchar* get_source_name(Source* source)
 {
     if (!source)
         return "Null";
-    if (source->streams.isEmpty())
-        return "No streams";
-    return get_stream_name(static_cast<Stream*>(source->streams[0]));
+    if (!source->stream)
+        return "No stream";
+    return get_stream_name(source->stream);
 }
 
 static GstPad* get_internal_linked_pad(GstPad* pad)
@@ -596,229 +598,7 @@ static void webKitMediaSrcParserNotifyCaps(GObject* object, GParamSpec*, Stream*
 
 static void webKitMediaSrcDemuxerPadAdded(GstElement*, GstPad* demuxersrcpad, Source* source)
 {
-    /*
-    GstCaps* demuxersrcpadcaps = gst_pad_get_current_caps(demuxersrcpad);
-    GstStructure* s = gst_caps_get_structure(demuxersrcpadcaps, 0);
-    Stream* stream = g_new0(Stream, 1);
-    gchar *parserBinName;
-    const gchar* demuxersrcpadtypename = gst_structure_get_name(s);
-    const gchar* mediaType = demuxersrcpadtypename;
-    bool capsNotifyHandlerConnected = false;
-    unsigned padId = 0;
-
-#if GST_CHECK_VERSION(1, 5, 3)
-    GstElement* decryptor = nullptr;
-    if (gst_structure_has_name(s, "application/x-cenc"))
-        mediaType = gst_structure_get_string(s, "original-media-type");
-#endif
-
-    stream->decryptorSrcPad = nullptr;
-
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
-
-    GST_OBJECT_LOCK(source->parent);
-    padId = source->parent->priv->numberOfPads;
-    source->parent->priv->numberOfPads++;
-    GST_OBJECT_UNLOCK(source->parent);
-
-    stream->parent = source;
-    stream->initSegmentAlreadyProcessed = false;
-    stream->type = STREAM_TYPE_UNKNOWN;
-    stream->demuxersrcpad = demuxersrcpad;
-
-    parserBinName = g_strdup_printf("streamparser%u", padId);
-
-    g_assert(demuxersrcpadcaps != 0);
-
-    stream->parser = gst_bin_new(parserBinName);
-    g_free(parserBinName);
-
-    GST_DEBUG_OBJECT(source->parent, "stream %u: new pad with caps %" GST_PTR_FORMAT, padId, demuxersrcpadcaps);
-
-#if GST_CHECK_VERSION(1, 5, 3)
-    if (gst_structure_has_name(s, "application/x-cenc")) {
-        decryptor = WebCore::createGstDecryptor(gst_structure_get_string(s, "protection-system"));
-        if (!decryptor) {
-            GST_ERROR_OBJECT(source->parent, "decryptor not found for caps: %" GST_PTR_FORMAT, demuxersrcpadcaps);
-            gst_object_unref(GST_OBJECT(stream->parser));
-            return;
-        }
-
-        stream->decryptorSrcPad = gst_element_get_static_pad(decryptor, "src");
-        g_signal_connect(stream->decryptorSrcPad, "notify::caps", G_CALLBACK(webKitMediaSrcParserNotifyCaps), stream);
-        capsNotifyHandlerConnected = true;
-        gst_bin_add(GST_BIN(stream->parser), decryptor);
-    }
-#endif
-
-    if (!g_strcmp0(mediaType, "video/x-h264")) {
-        GstElement* parser;
-        GstElement* capsfilter;
-        GstPad* pad = nullptr;
-        GstCaps* filtercaps;
-
-        filtercaps = gst_caps_new_simple("video/x-h264", "alignment", G_TYPE_STRING, "au", NULL);
-        parser = gst_element_factory_make("h264parse", 0);
-        capsfilter = gst_element_factory_make("capsfilter", 0);
-        g_object_set(capsfilter, "caps", filtercaps, NULL);
-        gst_caps_unref(filtercaps);
-
-        gst_bin_add_many(GST_BIN(stream->parser), parser, capsfilter, NULL);
-#if GST_CHECK_VERSION(1, 5, 3)
-        if (decryptor) {
-            gst_element_link_pads(decryptor, "src", parser, "sink");
-            pad = gst_element_get_static_pad(decryptor, "sink");
-        }
-#endif
-        gst_element_link_pads(parser, "src", capsfilter, "sink");
-
-        if (!pad)
-            pad = gst_element_get_static_pad(parser, "sink");
-        gst_element_add_pad(stream->parser, gst_ghost_pad_new("sink", pad));
-        gst_object_unref(pad);
-
-        pad = gst_element_get_static_pad(capsfilter, "src");
-        gst_element_add_pad(stream->parser, gst_ghost_pad_new("src", pad));
-        gst_object_unref(pad);
-    } else if (!g_strcmp0(mediaType, "video/x-h265")) {
-        GstElement* parser;
-        GstElement* capsfilter;
-        GstPad* pad = nullptr;
-        GstCaps* filtercaps;
-
-        filtercaps = gst_caps_new_simple("video/x-h265", "alignment", G_TYPE_STRING, "au", NULL);
-        parser = gst_element_factory_make("h265parse", 0);
-        capsfilter = gst_element_factory_make("capsfilter", 0);
-        g_object_set(capsfilter, "caps", filtercaps, NULL);
-        gst_caps_unref(filtercaps);
-
-        gst_bin_add_many(GST_BIN(stream->parser), parser, capsfilter, NULL);
-
-#if GST_CHECK_VERSION(1, 5, 3)
-        if (decryptor) {
-            gst_element_link_pads(decryptor, "src", parser, "sink");
-            pad = gst_element_get_static_pad(decryptor, "sink");
-        }
-#endif
-        gst_element_link_pads(parser, "src", capsfilter, "sink");
-
-        if (!pad)
-            pad = gst_element_get_static_pad(parser, "sink");
-        gst_element_add_pad(stream->parser, gst_ghost_pad_new("sink", pad));
-        gst_object_unref(pad);
-
-        pad = gst_element_get_static_pad(capsfilter, "src");
-        gst_element_add_pad(stream->parser, gst_ghost_pad_new("src", pad));
-        gst_object_unref(pad);
-    } else if (!g_strcmp0(mediaType, "audio/mpeg")) {
-        gint mpegversion = -1;
-        GstElement* parser;
-        GstPad* pad = nullptr;
-
-        gst_structure_get_int(s, "mpegversion", &mpegversion);
-        if (mpegversion == 1) {
-            parser = gst_element_factory_make("mpegaudioparse", 0);
-        } else if (mpegversion == 2 || mpegversion == 4) {
-            parser = gst_element_factory_make("aacparse", 0);
-        } else {
-            g_assert_not_reached();
-        }
-
-        gst_bin_add(GST_BIN(stream->parser), parser);
-
-#if GST_CHECK_VERSION(1, 5, 3)
-        if (decryptor) {
-            gst_element_link_pads(decryptor, "src", parser, "sink");
-            pad = gst_element_get_static_pad(decryptor, "sink");
-        }
-#endif
-
-        if (!pad)
-            pad = gst_element_get_static_pad(parser, "sink");
-        gst_element_add_pad(stream->parser, gst_ghost_pad_new("sink", pad));
-        gst_object_unref(pad);
-
-        pad = gst_element_get_static_pad(parser, "src");
-        gst_element_add_pad(stream->parser, gst_ghost_pad_new("src", pad));
-        gst_object_unref(pad);
-    } else {
-        GST_ERROR_OBJECT(source->parent, "Unsupported caps: %" GST_PTR_FORMAT, demuxersrcpadcaps);
-        gst_object_unref(GST_OBJECT(stream->parser));
-        return;
-    }
-
-    GST_OBJECT_LOCK(source->parent);
-    source->streams.append(stream);
-    GST_OBJECT_UNLOCK(source->parent);
-
-    GstPad* sinkpad;
-    GstPad* srcpad = nullptr;
-
-    sinkpad = gst_element_get_request_pad(source->multiqueue, "sink_%u");
-    gst_pad_link(demuxersrcpad, sinkpad);
-
-    srcpad = get_internal_linked_pad(sinkpad);
-    g_object_ref(srcpad);
-    stream->multiqueuesrcpad = srcpad;
-    stream->bufferAfterMultiqueueProbeId = gst_pad_add_probe(srcpad, GST_PAD_PROBE_TYPE_BUFFER, (GstPadProbeCallback) webKitWebSrcBufferAfterMultiqueueProbe, stream, NULL);
-    gst_object_unref(sinkpad);
-
-    webKitMediaSrcUpdatePresentationSize(demuxersrcpadcaps, stream);
-
-    ASSERT(stream->parser);
-    gst_bin_add(GST_BIN(source->parent), stream->parser);
-    gst_element_sync_state_with_parent(stream->parser);
-    sinkpad = gst_element_get_static_pad(stream->parser, "sink");
-    gst_pad_link(srcpad, sinkpad);
-    gst_object_unref(srcpad);
-    gst_object_unref(sinkpad);
-
-    gst_caps_unref(demuxersrcpadcaps);
-
-
-    srcpad = gst_element_get_static_pad(stream->parser, "src");
-    g_object_set_data(G_OBJECT(srcpad), "id", GINT_TO_POINTER(padId));
-    if (!capsNotifyHandlerConnected)
-        g_signal_connect(srcpad, "notify::caps", G_CALLBACK(webKitMediaSrcParserNotifyCaps), stream);
-    webKitMediaSrcLinkStreamToSrcPad(srcpad, stream);
-
-    ASSERT(source->parent->priv->mediaPlayerPrivate);
-    int signal = -1;
-    if (g_str_has_prefix(mediaType, "audio")) {
-        GST_OBJECT_LOCK(source->parent);
-        stream->type = STREAM_TYPE_AUDIO;
-        source->parent->priv->nAudio++;
-        GST_OBJECT_UNLOCK(source->parent);
-        signal = SIGNAL_AUDIO_CHANGED;
-
-        RefPtr<WebCore::AudioTrackPrivateGStreamer> track = WebCore::AudioTrackPrivateGStreamer::create(source->parent->priv->mediaPlayerPrivate->pipeline(), source->parent->priv->nAudio, srcpad);
-        stream->audioTrack = track;
-
-    } else if (g_str_has_prefix(mediaType, "video")) {
-        GST_OBJECT_LOCK(source->parent);
-        stream->type = STREAM_TYPE_VIDEO;
-        source->parent->priv->nVideo++;
-        GST_OBJECT_UNLOCK(source->parent);
-        signal = SIGNAL_VIDEO_CHANGED;
-
-        RefPtr<WebCore::VideoTrackPrivateGStreamer> track = WebCore::VideoTrackPrivateGStreamer::create(source->parent->priv->mediaPlayerPrivate->pipeline(), source->parent->priv->nVideo, srcpad);
-        stream->videoTrack = track;
-    } else if (g_str_has_prefix(mediaType, "text")) {
-        GST_OBJECT_LOCK(source->parent);
-        stream->type = STREAM_TYPE_TEXT;
-        source->parent->priv->nText++;
-        GST_OBJECT_UNLOCK(source->parent);
-        signal = SIGNAL_TEXT_CHANGED;
-    }
-
-    if (signal != -1)
-        g_signal_emit(G_OBJECT(source->parent), webkit_media_src_signals[signal], 0, NULL);
-
-    gst_object_unref(srcpad);
-
-    WTF::String  dotFileName = String::format("demuxer-pad-%u-added", padId);
-    gst_debug_bin_to_dot_file(GST_BIN(GST_ELEMENT_PARENT(source->parent)), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
-    */
+    // See PlaybackPipeline::attachTrack()
 }
 
 static gboolean releaseStream(WebKitMediaSrc* src, Stream* stream)
@@ -854,13 +634,13 @@ static gboolean releaseStream(WebKitMediaSrc* src, Stream* stream)
 
     int signal = -1;
     switch (stream->type) {
-    case STREAM_TYPE_AUDIO:
+    case WebCore::Audio:
         signal = SIGNAL_AUDIO_CHANGED;
         break;
-    case STREAM_TYPE_VIDEO:
+    case WebCore::Video:
         signal = SIGNAL_VIDEO_CHANGED;
         break;
-    case STREAM_TYPE_TEXT:
+    case WebCore::Text:
         signal = SIGNAL_TEXT_CHANGED;
         break;
     default:
@@ -897,24 +677,21 @@ static void webKitMediaSrcDemuxerPadRemoved(GstElement*, GstPad* demuxersrcpad, 
     size_t streamIndex = 0;
 
     GST_OBJECT_LOCK(source->parent);
-    for (size_t i = 0; i < source->streams.size(); i++) {
-        Stream* s = source->streams[i];
-        if (demuxersrcpad == s->demuxersrcpad) {
-            streamIndex = i;
-            stream = s;
-            srcpad = s->srcpad;
-            multiqueuesrcpad = s->multiqueuesrcpad;
-            parser = s->parser;
-            multiqueue = s->parent->multiqueue;
-            bufferProbeId = s->bufferProbeId;
-            bufferAfterMultiqueueProbeId = s->bufferAfterMultiqueueProbeId;
-            s->srcpad = nullptr;
-            s->multiqueuesrcpad = nullptr;
-            s->parser = nullptr;
-            s->bufferProbeId = 0;
-            s->bufferAfterMultiqueueProbeId = 0;
-            break;
-        }
+    if (source->stream) {
+        Stream* s = source->stream;
+        streamIndex = 1;
+        stream = s;
+        srcpad = s->srcpad;
+        multiqueuesrcpad = s->multiqueuesrcpad;
+        parser = s->parser;
+        multiqueue = s->parent->multiqueue;
+        bufferProbeId = s->bufferProbeId;
+        bufferAfterMultiqueueProbeId = s->bufferAfterMultiqueueProbeId;
+        s->srcpad = nullptr;
+        s->multiqueuesrcpad = nullptr;
+        s->parser = nullptr;
+        s->bufferProbeId = 0;
+        s->bufferAfterMultiqueueProbeId = 0;
     }
     GST_OBJECT_UNLOCK(source->parent);
 
@@ -984,7 +761,7 @@ static void webKitMediaSrcDemuxerPadRemoved(GstElement*, GstPad* demuxersrcpad, 
             g_cond_wait(&source->parent->priv->streamCondition, &source->parent->priv->streamMutex);
         }
 
-        source->streams.remove(streamIndex);
+        source->stream = nullptr;
     }
     */
 }
@@ -1020,7 +797,7 @@ static void webKitMediaSrcHaveType(GstElement* typefind, guint, GstCaps* caps, S
 {
     /*
     GST_OBJECT_LOCK(source->parent);
-    bool alreadyProcessed = source->demuxer || !source->streams.isEmpty();
+    bool alreadyProcessed = source->demuxer || source->stream;
     GST_OBJECT_UNLOCK(source->parent);
 
     if (alreadyProcessed) {
@@ -1161,13 +938,10 @@ static Stream* getStreamByTrackId(WebKitMediaSrc* src, AtomicString trackIDStrin
     // WebKitMediaSrc should be locked at this point.
     for (GList* sources = src->priv->sources; sources; sources = sources->next) {
         Source* source = static_cast<Source*>(sources->data);
-        for (size_t i = 0; i < source->streams.size(); i++) {
-            Stream* stream = source->streams[i];
-            if (stream->audioTrack && stream->audioTrack->id() == trackIDString)
-                return stream;
-            if (stream->videoTrack && stream->videoTrack->id() == trackIDString)
-                return stream;
-        }
+        if (source->stream && (
+            (source->stream->audioTrack && source->stream->audioTrack->id() == trackIDString) ||
+            (source->stream->videoTrack && source->stream->videoTrack->id() == trackIDString) ) )
+            return source->stream;
     }
     return NULL;
 }
@@ -1202,7 +976,7 @@ WebKitMediaSrc* PlaybackPipeline::webKitMediaSrc()
     return m_src.get();
 }
 
-MediaSourcePrivate::AddStatus PlaybackPipeline::addSourceBuffer(PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate)
+MediaSourcePrivate::AddStatus PlaybackPipeline::addSourceBuffer(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate)
 {
     WebKitMediaSrcPrivate* priv = m_src->priv;
 
@@ -1251,7 +1025,7 @@ MediaSourcePrivate::AddStatus PlaybackPipeline::addSourceBuffer(PassRefPtr<Sourc
     return MediaSourcePrivate::Ok;
 }
 
-void PlaybackPipeline::removeSourceBuffer(PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate)
+void PlaybackPipeline::removeSourceBuffer(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate)
 {
     GST_DEBUG_OBJECT(m_src.get(), "Element removed from MediaSource");
     GST_OBJECT_LOCK(m_src.get());
@@ -1286,23 +1060,277 @@ void PlaybackPipeline::removeSourceBuffer(PassRefPtr<SourceBufferPrivateGStreame
         }
         */
 
-        while (!source->streams.isEmpty()) {
-            Stream* stream = source->streams.last();
-
+        if (!source->stream) {
             if (WTF::isMainThread())
-                releaseStream(source->parent, stream);
+                releaseStream(source->parent, source->stream);
             else {
                 WTF::GMutexLocker<GMutex> lock(source->parent->priv->streamMutex);
                 WebCore::GstObjectRef protector(GST_OBJECT(source->parent));
+                Stream* stream = source->stream;
                 source->parent->priv->timeoutSource.schedule([protector, stream] { releaseStream(WEBKIT_MEDIA_SRC(protector.get()), stream); });
 
                 g_cond_wait(&source->parent->priv->streamCondition, &source->parent->priv->streamMutex);
             }
-            source->streams.removeLast();
+            source->stream = 0;
         }
 
         g_timeout_add(300, (GSourceFunc)freeSourceLater, source);
     }
+}
+
+void PlaybackPipeline::attachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, RefPtr<TrackPrivateBase> trackPrivate, GstCaps* caps)
+{
+    // TODO: Find any existing Stream with the same track and detach it first.
+
+    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+
+    WebKitMediaSrc* webKitMediaSrc = m_src.get();
+    WebKitMediaSrcPrivate* priv = m_src->priv;
+    Source* source = 0;
+    GstCaps* appsrccaps = 0;
+    Stream* stream = g_new0(Stream, 1);
+    gchar *parserBinName;
+    bool capsNotifyHandlerConnected = false;
+    unsigned padId = 0;
+
+    GST_OBJECT_LOCK(webKitMediaSrc);
+    for (GList* l = priv->sources; l; l = l->next) {
+        Source* tmp = static_cast<Source*>(l->data);
+        if (tmp->sourceBuffer == sourceBufferPrivate.get()) {
+            source = tmp;
+            break;
+        }
+    }
+    GST_OBJECT_UNLOCK(webKitMediaSrc);
+
+    g_assert(source != 0);
+
+    gst_app_src_set_caps(GST_APP_SRC(source->src), caps);
+    appsrccaps = gst_app_src_get_caps(GST_APP_SRC(source->src));
+
+    /*
+#if GST_CHECK_VERSION(1, 5, 3)
+    GstElement* decryptor = nullptr;
+    if (gst_structure_has_name(s, "application/x-cenc"))
+        mediaType = gst_structure_get_string(s, "original-media-type");
+#endif
+    */
+
+    stream->decryptorSrcPad = nullptr;
+
+    GST_OBJECT_LOCK(webKitMediaSrc);
+    padId = source->parent->priv->numberOfPads;
+    source->parent->priv->numberOfPads++;
+    GST_OBJECT_UNLOCK(webKitMediaSrc);
+
+    stream->parent = source;
+    stream->initSegmentAlreadyProcessed = false;
+    stream->type = Unknown;
+
+    parserBinName = g_strdup_printf("streamparser%u", padId);
+
+    {
+        WTF::String  dotFileName = String::format("attach-track-%s", trackPrivate->id().string().latin1().data());
+        gst_debug_bin_to_dot_file(GST_BIN(GST_ELEMENT_PARENT(webKitMediaSrc)), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
+    }
+
+    g_assert(appsrccaps != 0);
+
+    stream->parser = gst_bin_new(parserBinName);
+    g_free(parserBinName);
+
+    // ############# CONTINUE HERE
+/*
+    GST_DEBUG_OBJECT(source->parent, "stream %u: new pad with caps %" GST_PTR_FORMAT, padId, demuxersrcpadcaps);
+
+#if GST_CHECK_VERSION(1, 5, 3)
+    if (gst_structure_has_name(s, "application/x-cenc")) {
+        decryptor = WebCore::createGstDecryptor(gst_structure_get_string(s, "protection-system"));
+        if (!decryptor) {
+            GST_ERROR_OBJECT(source->parent, "decryptor not found for caps: %" GST_PTR_FORMAT, demuxersrcpadcaps);
+            gst_object_unref(GST_OBJECT(stream->parser));
+            return;
+        }
+
+        stream->decryptorSrcPad = gst_element_get_static_pad(decryptor, "src");
+        g_signal_connect(stream->decryptorSrcPad, "notify::caps", G_CALLBACK(webKitMediaSrcParserNotifyCaps), stream);
+        capsNotifyHandlerConnected = true;
+        gst_bin_add(GST_BIN(stream->parser), decryptor);
+    }
+#endif
+
+    if (!g_strcmp0(mediaType, "video/x-h264")) {
+        GstElement* parser;
+        GstElement* capsfilter;
+        GstPad* pad = nullptr;
+        GstCaps* filtercaps;
+
+        filtercaps = gst_caps_new_simple("video/x-h264", "alignment", G_TYPE_STRING, "au", NULL);
+        parser = gst_element_factory_make("h264parse", 0);
+        capsfilter = gst_element_factory_make("capsfilter", 0);
+        g_object_set(capsfilter, "caps", filtercaps, NULL);
+        gst_caps_unref(filtercaps);
+
+        gst_bin_add_many(GST_BIN(stream->parser), parser, capsfilter, NULL);
+#if GST_CHECK_VERSION(1, 5, 3)
+        if (decryptor) {
+            gst_element_link_pads(decryptor, "src", parser, "sink");
+            pad = gst_element_get_static_pad(decryptor, "sink");
+        }
+#endif
+        gst_element_link_pads(parser, "src", capsfilter, "sink");
+
+        if (!pad)
+            pad = gst_element_get_static_pad(parser, "sink");
+        gst_element_add_pad(stream->parser, gst_ghost_pad_new("sink", pad));
+        gst_object_unref(pad);
+
+        pad = gst_element_get_static_pad(capsfilter, "src");
+        gst_element_add_pad(stream->parser, gst_ghost_pad_new("src", pad));
+        gst_object_unref(pad);
+    } else if (!g_strcmp0(mediaType, "video/x-h265")) {
+        GstElement* parser;
+        GstElement* capsfilter;
+        GstPad* pad = nullptr;
+        GstCaps* filtercaps;
+
+        filtercaps = gst_caps_new_simple("video/x-h265", "alignment", G_TYPE_STRING, "au", NULL);
+        parser = gst_element_factory_make("h265parse", 0);
+        capsfilter = gst_element_factory_make("capsfilter", 0);
+        g_object_set(capsfilter, "caps", filtercaps, NULL);
+        gst_caps_unref(filtercaps);
+
+        gst_bin_add_many(GST_BIN(stream->parser), parser, capsfilter, NULL);
+
+#if GST_CHECK_VERSION(1, 5, 3)
+        if (decryptor) {
+            gst_element_link_pads(decryptor, "src", parser, "sink");
+            pad = gst_element_get_static_pad(decryptor, "sink");
+        }
+#endif
+        gst_element_link_pads(parser, "src", capsfilter, "sink");
+
+        if (!pad)
+            pad = gst_element_get_static_pad(parser, "sink");
+        gst_element_add_pad(stream->parser, gst_ghost_pad_new("sink", pad));
+        gst_object_unref(pad);
+
+        pad = gst_element_get_static_pad(capsfilter, "src");
+        gst_element_add_pad(stream->parser, gst_ghost_pad_new("src", pad));
+        gst_object_unref(pad);
+    } else if (!g_strcmp0(mediaType, "audio/mpeg")) {
+        gint mpegversion = -1;
+        GstElement* parser;
+        GstPad* pad = nullptr;
+
+        gst_structure_get_int(s, "mpegversion", &mpegversion);
+        if (mpegversion == 1) {
+            parser = gst_element_factory_make("mpegaudioparse", 0);
+        } else if (mpegversion == 2 || mpegversion == 4) {
+            parser = gst_element_factory_make("aacparse", 0);
+        } else {
+            g_assert_not_reached();
+        }
+
+        gst_bin_add(GST_BIN(stream->parser), parser);
+
+#if GST_CHECK_VERSION(1, 5, 3)
+        if (decryptor) {
+            gst_element_link_pads(decryptor, "src", parser, "sink");
+            pad = gst_element_get_static_pad(decryptor, "sink");
+        }
+#endif
+
+        if (!pad)
+            pad = gst_element_get_static_pad(parser, "sink");
+        gst_element_add_pad(stream->parser, gst_ghost_pad_new("sink", pad));
+        gst_object_unref(pad);
+
+        pad = gst_element_get_static_pad(parser, "src");
+        gst_element_add_pad(stream->parser, gst_ghost_pad_new("src", pad));
+        gst_object_unref(pad);
+    } else {
+        GST_ERROR_OBJECT(source->parent, "Unsupported caps: %" GST_PTR_FORMAT, demuxersrcpadcaps);
+        gst_object_unref(GST_OBJECT(stream->parser));
+        return;
+    }
+
+    GST_OBJECT_LOCK(webKitMediaSrc);
+    if (source->stream) {
+        printf("### TODO %s: source->stream already has a value, detach it first!\n", __PRETTY_FUNCTION__); fflush(stdout);
+        ABORT();
+    }
+    source->stream = stream;
+    GST_OBJECT_UNLOCK(webKitMediaSrc);
+
+    GstPad* sinkpad;
+    GstPad* srcpad = nullptr;
+
+    sinkpad = gst_element_get_request_pad(source->multiqueue, "sink_%u");
+    gst_pad_link(demuxersrcpad, sinkpad);
+
+    srcpad = get_internal_linked_pad(sinkpad);
+    g_object_ref(srcpad);
+    stream->multiqueuesrcpad = srcpad;
+    stream->bufferAfterMultiqueueProbeId = gst_pad_add_probe(srcpad, GST_PAD_PROBE_TYPE_BUFFER, (GstPadProbeCallback) webKitWebSrcBufferAfterMultiqueueProbe, stream, NULL);
+    gst_object_unref(sinkpad);
+
+    webKitMediaSrcUpdatePresentationSize(demuxersrcpadcaps, stream);
+
+    ASSERT(stream->parser);
+    gst_bin_add(GST_BIN(source->parent), stream->parser);
+    gst_element_sync_state_with_parent(stream->parser);
+    sinkpad = gst_element_get_static_pad(stream->parser, "sink");
+    gst_pad_link(srcpad, sinkpad);
+    gst_object_unref(srcpad);
+    gst_object_unref(sinkpad);
+
+    // gst_caps_unref(demuxersrcpadcaps);
+    gst_caps_unref(appsrccaps);
+
+    srcpad = gst_element_get_static_pad(stream->parser, "src");
+    g_object_set_data(G_OBJECT(srcpad), "id", GINT_TO_POINTER(padId));
+    if (!capsNotifyHandlerConnected)
+        g_signal_connect(srcpad, "notify::caps", G_CALLBACK(webKitMediaSrcParserNotifyCaps), stream);
+    webKitMediaSrcLinkStreamToSrcPad(srcpad, stream);
+
+    ASSERT(source->parent->priv->mediaPlayerPrivate);
+    int signal = -1;
+    if (g_str_has_prefix(mediaType, "audio")) {
+        GST_OBJECT_LOCK(webKitMediaSrc);
+        stream->type = STREAM_TYPE_AUDIO;
+        source->parent->priv->nAudio++;
+        GST_OBJECT_UNLOCK(webKitMediaSrc);
+        signal = SIGNAL_AUDIO_CHANGED;
+
+        RefPtr<WebCore::AudioTrackPrivateGStreamer> track = WebCore::AudioTrackPrivateGStreamer::create(source->parent->priv->mediaPlayerPrivate->pipeline(), source->parent->priv->nAudio, srcpad);
+        stream->audioTrack = track;
+
+    } else if (g_str_has_prefix(mediaType, "video")) {
+        GST_OBJECT_LOCK(webKitMediaSrc);
+        stream->type = STREAM_TYPE_VIDEO;
+        source->parent->priv->nVideo++;
+        GST_OBJECT_UNLOCK(webKitMediaSrc);
+        signal = SIGNAL_VIDEO_CHANGED;
+
+        RefPtr<WebCore::VideoTrackPrivateGStreamer> track = WebCore::VideoTrackPrivateGStreamer::create(source->parent->priv->mediaPlayerPrivate->pipeline(), source->parent->priv->nVideo, srcpad);
+        stream->videoTrack = track;
+    } else if (g_str_has_prefix(mediaType, "text")) {
+        GST_OBJECT_LOCK(webKitMediaSrc);
+        stream->type = STREAM_TYPE_TEXT;
+        source->parent->priv->nText++;
+        GST_OBJECT_UNLOCK(webKitMediaSrc);
+        signal = SIGNAL_TEXT_CHANGED;
+    }
+
+    if (signal != -1)
+        g_signal_emit(G_OBJECT(source->parent), webkit_media_src_signals[signal], 0, NULL);
+
+    gst_object_unref(srcpad);
+
+    WTF::String  dotFileName = String::format("demuxer-pad-%u-added", padId);
+    gst_debug_bin_to_dot_file(GST_BIN(GST_ELEMENT_PARENT(source->parent)), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
+*/
 }
 
 // DEBUG
@@ -1384,8 +1412,9 @@ void PlaybackPipeline::markEndOfStream(MediaSourcePrivate::EndOfStreamStatus)
         gst_app_src_end_of_stream(*it);
 }
 
-void PlaybackPipeline::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString)
+void PlaybackPipeline::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate)
 {
+    /*
     GST_DEBUG_OBJECT(m_src.get(), "Flushing and re-enqueing %d samples for stream %s", samples.size(), trackIDString.string().utf8().data());
 
     //GST_OBJECT_LOCK(m_src.get());
@@ -1489,10 +1518,12 @@ void PlaybackPipeline::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSa
     }
     gst_object_unref(multiqueuesinkpad);
 #endif
+    */
 }
 
-void PlaybackPipeline::enqueueSample(PassRefPtr<MediaSample> prsample, AtomicString trackIDString)
+void PlaybackPipeline::enqueueSample(PassRefPtr<MediaSample> prsample, RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate)
 {
+/*
     RefPtr<MediaSample> rsample = prsample;
     GST_DEBUG_OBJECT(m_src.get(), "Enqueing sample to stream %s at %" GST_TIME_FORMAT, trackIDString.string().utf8().data(), GST_TIME_ARGS(toGstClockTime(rsample->presentationTime().toDouble())));
     GST_OBJECT_LOCK(m_src.get());
@@ -1517,6 +1548,7 @@ void PlaybackPipeline::enqueueSample(PassRefPtr<MediaSample> prsample, AtomicStr
         gst_pad_chain(multiqueuesinkpad, buffer);
     }
     gst_object_unref(multiqueuesinkpad);
+*/
 }
 
 };
@@ -1526,6 +1558,7 @@ GstPad* webkit_media_src_get_audio_pad(WebKitMediaSrc* src, guint i)
     GST_OBJECT_LOCK(src);
 
     GstPad* result = NULL;
+    /*
     guint n = 0;
     for (GList* sources = src->priv->sources; sources && !result; sources = sources->next) {
         Source* source = (Source*)sources->data;
@@ -1540,7 +1573,7 @@ GstPad* webkit_media_src_get_audio_pad(WebKitMediaSrc* src, guint i)
             }
         }
     }
-
+    */
     GST_OBJECT_UNLOCK(src);
 
     return result;
@@ -1551,6 +1584,7 @@ GstPad* webkit_media_src_get_video_pad(WebKitMediaSrc* src, guint i)
     GST_OBJECT_LOCK(src);
 
     GstPad* result = NULL;
+    /*
     guint n = 0;
     for (GList* sources = src->priv->sources; sources && !result; sources = sources->next) {
         Source* source = (Source*)sources->data;
@@ -1565,7 +1599,7 @@ GstPad* webkit_media_src_get_video_pad(WebKitMediaSrc* src, guint i)
             }
         }
     }
-
+    */
     GST_OBJECT_UNLOCK(src);
 
     return result;
@@ -1574,8 +1608,8 @@ GstPad* webkit_media_src_get_video_pad(WebKitMediaSrc* src, guint i)
 GstPad* webkit_media_src_get_text_pad(WebKitMediaSrc* src, guint i)
 {
     GST_OBJECT_LOCK(src);
-
     GstPad* result = NULL;
+    /*
     guint n = 0;
     for (GList* sources = src->priv->sources; sources && !result; sources = sources->next) {
         Source* source = (Source*)sources->data;
@@ -1590,7 +1624,7 @@ GstPad* webkit_media_src_get_text_pad(WebKitMediaSrc* src, guint i)
             }
         }
     }
-
+    */
     GST_OBJECT_UNLOCK(src);
 
     return result;
@@ -1675,7 +1709,7 @@ static GstClockTime toGstClockTime(float time)
     return GST_TIMEVAL_TO_TIME(timeValue);
 }
 
-void webkit_media_src_segment_needed(WebKitMediaSrc* src, StreamType streamType)
+void webkit_media_src_segment_needed(WebKitMediaSrc* src, WebCore::StreamType streamType)
 {
 #if 0
     // The video sink has received reset-time and needs a new segment before

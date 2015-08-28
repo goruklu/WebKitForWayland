@@ -181,6 +181,8 @@ public:
     void keyAdded();
 #endif
 
+    void trackDetected(RefPtr<AppendPipeline>);
+
     using RefCounted<MediaPlayerPrivateGStreamerMSE>::ref;
     using RefCounted<MediaPlayerPrivateGStreamerMSE>::deref;
 

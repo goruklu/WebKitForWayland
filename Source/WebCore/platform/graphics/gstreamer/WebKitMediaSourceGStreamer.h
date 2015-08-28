@@ -36,6 +36,8 @@ namespace WebCore {
 
 class MediaPlayerPrivateGStreamerBase;
 
+enum StreamType { Unknown, Audio, Video, Text };
+
 }
 
 G_BEGIN_DECLS
@@ -45,8 +47,6 @@ G_BEGIN_DECLS
 #define WEBKIT_MEDIA_SRC_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST ((klass), WEBKIT_TYPE_MEDIA_SRC, WebKitMediaSrcClass))
 #define WEBKIT_IS_MEDIA_SRC(obj)         (G_TYPE_CHECK_INSTANCE_TYPE ((obj), WEBKIT_TYPE_MEDIA_SRC))
 #define WEBKIT_IS_MEDIA_SRC_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE ((klass), WEBKIT_TYPE_MEDIA_SRC))
-
-typedef enum _StreamType {STREAM_TYPE_UNKNOWN, STREAM_TYPE_AUDIO, STREAM_TYPE_VIDEO, STREAM_TYPE_TEXT} StreamType;
 
 typedef struct _WebKitMediaSrc        WebKitMediaSrc;
 typedef struct _WebKitMediaSrcClass   WebKitMediaSrcClass;
@@ -75,7 +75,7 @@ GstPad* webkit_media_src_get_text_pad(WebKitMediaSrc* src, guint i);
 void webkit_media_src_set_mediaplayerprivate(WebKitMediaSrc* src, WebCore::MediaPlayerPrivateGStreamerBase* player);
 
 void webkit_media_src_set_seek_time(WebKitMediaSrc*, const MediaTime&);
-void webkit_media_src_segment_needed(WebKitMediaSrc*, StreamType);
+void webkit_media_src_segment_needed(WebKitMediaSrc*, WebCore::StreamType);
 gboolean webkit_media_src_is_appending(WebKitMediaSrc*);
 void webkit_media_src_perform_seek(WebKitMediaSrc*, gint64 position, float rate);
 
@@ -101,15 +101,16 @@ class PlaybackPipeline: public RefCounted<PlaybackPipeline> {
         void setWebKitMediaSrc(WebKitMediaSrc*);
         WebKitMediaSrc* webKitMediaSrc();
 
-        MediaSourcePrivate::AddStatus addSourceBuffer(PassRefPtr<SourceBufferPrivateGStreamer>);
-        void removeSourceBuffer(PassRefPtr<SourceBufferPrivateGStreamer>);
+        MediaSourcePrivate::AddStatus addSourceBuffer(RefPtr<SourceBufferPrivateGStreamer>);
+        void removeSourceBuffer(RefPtr<SourceBufferPrivateGStreamer>);
+        void attachTrack(RefPtr<SourceBufferPrivateGStreamer>, RefPtr<TrackPrivateBase>, GstCaps*);
 
         // From MediaSourceGStreamer
         void markEndOfStream(MediaSourcePrivate::EndOfStreamStatus);
 
         // From SourceBufferPrivateGStreamer
-        void flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString);
-        void enqueueSample(PassRefPtr<MediaSample> sample, AtomicString trackIDString);
+        void flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, RefPtr<SourceBufferPrivateGStreamer>);
+        void enqueueSample(PassRefPtr<MediaSample> sample, RefPtr<SourceBufferPrivateGStreamer>);
 
     private:
         PlaybackPipeline();

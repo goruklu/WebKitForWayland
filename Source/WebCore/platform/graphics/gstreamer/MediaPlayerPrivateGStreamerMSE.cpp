@@ -164,6 +164,65 @@ using namespace std;
 
 namespace WebCore {
 
+class AppendPipeline : public ThreadSafeRefCounted<AppendPipeline> {
+public:
+    enum AppendStage { Invalid, NotStarted, Ongoing, NoDataToDecode, Sampling, LastSample };
+
+    AppendPipeline(PassRefPtr<MediaSourceClientGStreamerMSE> mediaSourceClient, PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, MediaPlayerPrivateGStreamerMSE* playerPrivate);
+    virtual ~AppendPipeline();
+
+    gint id();
+    void setAppendStage(AppendStage newAppendStage);
+
+    // Takes ownership of caps.
+    void updatePresentationSize(GstCaps* demuxersrcpadcaps);
+    void demuxerPadAdded(GstPad* demuxersrcpad);
+    void demuxerPadRemoved(GstPad*);
+    void appSinkNewSample(GstSample* sample);
+    void didReceiveInitializationSegment();
+    AtomicString trackId();
+
+    RefPtr<MediaSourceClientGStreamerMSE> m_mediaSourceClient;
+    RefPtr<SourceBufferPrivateGStreamer> m_sourceBufferPrivate;
+    MediaPlayerPrivateGStreamerMSE* m_playerPrivate;
+
+    // (m_mediaType, m_id) is unique.
+    gint m_id;
+
+    GstElement* m_pipeline;
+    GstElement* m_appsrc;
+    GstElement* m_typefind;
+    GstElement* m_qtdemux;
+
+    // The demuxer has one src Stream only.
+    GstElement* m_appsink;
+
+    GstCaps* m_demuxersrcpadcaps;
+    FloatSize m_presentationSize;
+
+    // Some appended data are only headers and don't generate any
+    // useful stream data for decoding. This is detected with a
+    // timeout and reported to the upper layers, so update/updateend
+    // can be generated and the append operation doesn't block.
+    guint m_noDataToDecodeTimeoutTag;
+
+    // Used to detect the last sample. Rescheduled each time a new
+    // sample arrives.
+    guint m_lastSampleTimeoutTag;
+
+    // Keeps track of the stages of append processing, to avoid
+    // performing actions inappropriate for the current stage (eg:
+    // processing more samples when the last one has been detected
+    // or the noDataToDecodeTimeout has been triggered).
+    // Valid transitions:
+    // NotStarted->Ongoing->NoDataToDecode->NotStarted
+    // NotStarted->Ongoing->Sampling->...->Sampling->LastSample->NotStarted
+    AppendStage m_appendStage;
+
+    StreamType m_streamType;
+    RefPtr<WebCore::TrackPrivateBase> m_track;
+};
+
 static gboolean mediaPlayerPrivateMessageCallback(GstBus*, GstMessage* message, MediaPlayerPrivateGStreamerMSE* player)
 {
     return player->handleMessage(message);
@@ -1188,11 +1247,11 @@ std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateGStreamerMSE::buffered() c
 
 static StreamType getStreamType(GstElement* element)
 {
-    g_return_val_if_fail(GST_IS_ELEMENT(element), STREAM_TYPE_UNKNOWN);
+    g_return_val_if_fail(GST_IS_ELEMENT(element), Unknown);
 
     GstIterator* it;
     GValue item = G_VALUE_INIT;
-    StreamType result = STREAM_TYPE_UNKNOWN;
+    StreamType result = Unknown;
 
     it = gst_element_iterate_sink_pads(element);
 
@@ -1208,13 +1267,13 @@ static StreamType getStreamType(GstElement* element)
                         // Look for "audio", "video", "text"
                         switch (mediatype[0]) {
                         case 'a':
-                            result = STREAM_TYPE_AUDIO;
+                            result = Audio;
                             break;
                         case 'v':
-                            result = STREAM_TYPE_VIDEO;
+                            result = Video;
                             break;
                         case 't':
-                            result = STREAM_TYPE_TEXT;
+                            result = Text;
                             break;
                         default:
                             break;
@@ -1467,7 +1526,7 @@ gboolean MediaPlayerPrivateGStreamerMSE::handleMessage(GstMessage* message)
     case GST_MESSAGE_RESET_TIME:
         if (m_source && WEBKIT_IS_MEDIA_SRC(m_source.get())) {
             StreamType streamType = getStreamType(GST_ELEMENT(GST_MESSAGE_SRC(message)));
-            if (streamType == STREAM_TYPE_AUDIO || streamType == STREAM_TYPE_VIDEO)
+            if (streamType == Audio || streamType == Video)
                 webkit_media_src_segment_needed(WEBKIT_MEDIA_SRC(m_source.get()), streamType);
         }
         break;
@@ -2005,12 +2064,9 @@ RefPtr<AppendPipeline> MediaPlayerPrivateGStreamerMSE::appendPipelineByTrackId(c
 
     ASSERT(!(trackId.isNull() || trackId.isEmpty()));
 
-    // ########### SOLVE A PROBLEM WITH FORWARD DECLARATION HERE
-    /*
     for (HashMap<RefPtr<SourceBufferPrivateGStreamer>, RefPtr<AppendPipeline> >::iterator it = m_appendPipelinesMap.begin(); it != m_appendPipelinesMap.end(); ++it)
         if (it->value->trackId() == trackId)
             return it->value;
-    */
 
     return RefPtr<AppendPipeline>(0);
 }
@@ -2497,6 +2553,13 @@ void MediaPlayerPrivateGStreamerMSE::keyAdded()
 }
 #endif
 
+void MediaPlayerPrivateGStreamerMSE::trackDetected(RefPtr<AppendPipeline> ap)
+{
+    printf("### %s: %s\n", __PRETTY_FUNCTION__, ap->m_track->id().string().latin1().data()); fflush(stdout);
+
+    m_playbackPipeline->attachTrack(ap->m_sourceBufferPrivate, ap->m_track, ap->m_demuxersrcpadcaps);
+}
+
 
 MediaPlayer::SupportsType MediaPlayerPrivateGStreamerMSE::supportsType(const MediaEngineSupportParameters& parameters)
 {
@@ -2913,427 +2976,384 @@ static void appendPipelineAppSinkEOS(GstElement*, AppendPipeline*);
 static gboolean appendPipelineNoDataToDecodeTimeout(AppendPipeline* ap);
 static gboolean appendPipelineLastSampleTimeout(AppendPipeline* ap);
 
-class AppendPipeline : public ThreadSafeRefCounted<AppendPipeline> {
-public:
-    enum MediaType { Unknown, Audio, Video, Text };
-    enum AppendStage { Invalid, NotStarted, Ongoing, NoDataToDecode, Sampling, LastSample };
+AppendPipeline::AppendPipeline(PassRefPtr<MediaSourceClientGStreamerMSE> mediaSourceClient, PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, MediaPlayerPrivateGStreamerMSE* playerPrivate)
+    : m_mediaSourceClient(mediaSourceClient)
+    , m_sourceBufferPrivate(sourceBufferPrivate)
+    , m_playerPrivate(playerPrivate)
+    , m_id(0)
+    , m_appsink(NULL)
+    , m_demuxersrcpadcaps(NULL)
+    , m_noDataToDecodeTimeoutTag(0)
+    , m_lastSampleTimeoutTag(0)
+    , m_appendStage(NotStarted)
+    , m_streamType(Unknown)
+{
+    printf("### %s %p\n", __PRETTY_FUNCTION__, this); fflush(stdout);
 
-    AppendPipeline(PassRefPtr<MediaSourceClientGStreamerMSE> mediaSourceClient, PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate)
-        : m_mediaSourceClient(mediaSourceClient)
-        , m_sourceBufferPrivate(sourceBufferPrivate)
-        , m_id(0)
-        , m_appsink(NULL)
-        , m_demuxersrcpadcaps(NULL)
-        , m_noDataToDecodeTimeoutTag(0)
-        , m_lastSampleTimeoutTag(0)
-        , m_appendStage(NotStarted)
-        , m_mediaType(Unknown)
-    {
-        printf("### %s %p\n", __PRETTY_FUNCTION__, this); fflush(stdout);
+    m_pipeline = gst_pipeline_new(NULL);
 
-        m_pipeline = gst_pipeline_new(NULL);
+    m_appsrc = gst_element_factory_make("appsrc", NULL);
+    m_typefind = gst_element_factory_make("typefind", NULL);
+    m_qtdemux = gst_element_factory_make("qtdemux", NULL);
+    m_appsink = gst_element_factory_make("appsink", NULL);
+    gst_app_sink_set_emit_signals(GST_APP_SINK(m_appsink), TRUE);
+    gst_base_sink_set_sync(GST_BASE_SINK(m_appsink), FALSE);
 
-        m_appsrc = gst_element_factory_make("appsrc", NULL);
-        m_typefind = gst_element_factory_make("typefind", NULL);
-        m_qtdemux = gst_element_factory_make("qtdemux", NULL);
-        m_appsink = gst_element_factory_make("appsink", NULL);
-        gst_app_sink_set_emit_signals(GST_APP_SINK(m_appsink), TRUE);
-        gst_base_sink_set_sync(GST_BASE_SINK(m_appsink), FALSE);
+    // These signals won't be connected outside of the lifetime of "this".
+    g_signal_connect(m_qtdemux, "pad-added", G_CALLBACK(appendPipelineDemuxerPadAdded), this);
+    g_signal_connect(m_qtdemux, "pad-removed", G_CALLBACK(appendPipelineDemuxerPadRemoved), this);
+    g_signal_connect(m_appsink, "new-sample", G_CALLBACK(appendPipelineAppSinkNewSample), this);
+    g_signal_connect(m_appsink, "eos", G_CALLBACK(appendPipelineAppSinkEOS), this);
 
-        // These signals won't be connected outside of the lifetime of "this".
-        g_signal_connect(m_qtdemux, "pad-added", G_CALLBACK(appendPipelineDemuxerPadAdded), this);
-        g_signal_connect(m_qtdemux, "pad-removed", G_CALLBACK(appendPipelineDemuxerPadRemoved), this);
-        g_signal_connect(m_appsink, "new-sample", G_CALLBACK(appendPipelineAppSinkNewSample), this);
-        g_signal_connect(m_appsink, "eos", G_CALLBACK(appendPipelineAppSinkEOS), this);
+    // Add_many will take ownership of a reference. Request one ref more for ourselves.
+    gst_object_ref(m_appsrc);
+    gst_object_ref(m_typefind);
+    gst_object_ref(m_qtdemux);
+    gst_object_ref(m_appsink);
 
-        // Add_many will take ownership of a reference. Request one ref more for ourselves.
-        gst_object_ref(m_appsrc);
-        gst_object_ref(m_typefind);
-        gst_object_ref(m_qtdemux);
-        gst_object_ref(m_appsink);
+    gst_bin_add_many(GST_BIN(m_pipeline), m_appsrc, m_typefind, m_qtdemux, m_appsink, NULL);
+    gst_element_link_many(m_appsrc, m_typefind, m_qtdemux, NULL);
 
-        gst_bin_add_many(GST_BIN(m_pipeline), m_appsrc, m_typefind, m_qtdemux, m_appsink, NULL);
-        gst_element_link_many(m_appsrc, m_typefind, m_qtdemux, NULL);
+    gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
+};
 
-        gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
-    };
+AppendPipeline::~AppendPipeline()
+{
+    printf("### %s %p\n", __PRETTY_FUNCTION__, this); fflush(stdout);
+    if (m_noDataToDecodeTimeoutTag) {
+        printf("### %s: m_noDataToDecodeTimeoutTag=%u\n", __PRETTY_FUNCTION__, m_noDataToDecodeTimeoutTag); fflush(stdout);
+        // TODO: Maybe notify appendComplete here?
+        g_source_remove(m_noDataToDecodeTimeoutTag);
+        m_noDataToDecodeTimeoutTag = 0;
+    }
 
-    virtual ~AppendPipeline()
-    {
-        printf("### %s %p\n", __PRETTY_FUNCTION__, this); fflush(stdout);
-        if (m_noDataToDecodeTimeoutTag) {
-            printf("### %s: m_noDataToDecodeTimeoutTag=%u\n", __PRETTY_FUNCTION__, m_noDataToDecodeTimeoutTag); fflush(stdout);
-            // TODO: Maybe notify appendComplete here?
-            g_source_remove(m_noDataToDecodeTimeoutTag);
-            m_noDataToDecodeTimeoutTag = 0;
-        }
+    if (m_lastSampleTimeoutTag) {
+        printf("### %s: m_lastSampleTimeoutTag=%u\n", __PRETTY_FUNCTION__, m_lastSampleTimeoutTag); fflush(stdout);
+        // TODO: Maybe notify appendComplete here?
+        g_source_remove(m_lastSampleTimeoutTag);
+        m_lastSampleTimeoutTag = 0;
+    }
 
-        if (m_lastSampleTimeoutTag) {
-            printf("### %s: m_lastSampleTimeoutTag=%u\n", __PRETTY_FUNCTION__, m_lastSampleTimeoutTag); fflush(stdout);
-            // TODO: Maybe notify appendComplete here?
-            g_source_remove(m_lastSampleTimeoutTag);
-            m_lastSampleTimeoutTag = 0;
-        }
+    if (m_pipeline) {
+        gst_element_set_state (m_pipeline, GST_STATE_NULL);
+        gst_object_unref(m_pipeline);
+        m_pipeline = NULL;
+    }
 
-        if (m_pipeline) {
-            gst_element_set_state (m_pipeline, GST_STATE_NULL);
-            gst_object_unref(m_pipeline);
-            m_pipeline = NULL;
-        }
+    if (m_appsrc) {
+        gst_object_unref(m_appsrc);
+        m_appsrc = NULL;
+    }
 
-        if (m_appsrc) {
-            gst_object_unref(m_appsrc);
-            m_appsrc = NULL;
-        }
+    if (m_typefind) {
+        gst_object_unref(m_typefind);
+        m_typefind = NULL;
+    }
 
-        if (m_typefind) {
-            gst_object_unref(m_typefind);
-            m_typefind = NULL;
-        }
+    if (m_qtdemux) {
+        g_signal_handlers_disconnect_by_func(m_qtdemux, (gpointer)appendPipelineDemuxerPadAdded, this);
+        g_signal_handlers_disconnect_by_func(m_qtdemux, (gpointer)appendPipelineDemuxerPadRemoved, this);
 
-        if (m_qtdemux) {
-            g_signal_handlers_disconnect_by_func(m_qtdemux, (gpointer)appendPipelineDemuxerPadAdded, this);
-            g_signal_handlers_disconnect_by_func(m_qtdemux, (gpointer)appendPipelineDemuxerPadRemoved, this);
+        gst_object_unref(m_qtdemux);
+        m_qtdemux = NULL;
+    }
 
-            gst_object_unref(m_qtdemux);
-            m_qtdemux = NULL;
-        }
+    if (m_appsink) {
+        g_signal_handlers_disconnect_by_func(m_appsink, (gpointer)appendPipelineAppSinkNewSample, this);
+        g_signal_handlers_disconnect_by_func(m_appsink, (gpointer)appendPipelineAppSinkEOS, this);
 
-        if (m_appsink) {
-            g_signal_handlers_disconnect_by_func(m_appsink, (gpointer)appendPipelineAppSinkNewSample, this);
-            g_signal_handlers_disconnect_by_func(m_appsink, (gpointer)appendPipelineAppSinkEOS, this);
+        gst_object_unref(m_appsink);
+        m_appsink = NULL;
+    }
 
-            gst_object_unref(m_appsink);
-            m_appsink = NULL;
-        }
+    if (m_demuxersrcpadcaps) {
+        gst_caps_unref(m_demuxersrcpadcaps);
+        m_demuxersrcpadcaps = NULL;
+    }
+};
 
-        if (m_demuxersrcpadcaps) {
-            gst_caps_unref(m_demuxersrcpadcaps);
-            m_demuxersrcpadcaps = NULL;
-        }
-    };
+gint AppendPipeline::id()
+{
+    static gint totalAudio = 0;
+    static gint totalVideo = 0;
+    static gint totalText = 0;
 
-    gint id()
-    {
-        static gint totalAudio = 0;
-        static gint totalVideo = 0;
-        static gint totalText = 0;
-
-        if (m_id)
-            return m_id;
-
-        switch (m_mediaType) {
-        case Audio:
-            totalAudio++;
-            m_id = totalAudio;
-            break;
-        case Video:
-            totalVideo++;
-            m_id = totalVideo;
-            break;
-        case Text:
-            totalText++;
-            m_id = totalText;
-            break;
-        case Unknown:
-            printf("### %s: Trying to get id for a pipeline of Unknown type\n", __PRETTY_FUNCTION__); fflush(stdout);
-            g_assert_not_reached();
-            break;
-        }
-
-        printf("### %s: mediaType=%d, id=%d\n", __PRETTY_FUNCTION__, static_cast<int>(m_mediaType), m_id); fflush(stdout);
-
+    if (m_id)
         return m_id;
+
+    switch (m_streamType) {
+    case Audio:
+        totalAudio++;
+        m_id = totalAudio;
+        break;
+    case Video:
+        totalVideo++;
+        m_id = totalVideo;
+        break;
+    case Text:
+        totalText++;
+        m_id = totalText;
+        break;
+    case Unknown:
+        printf("### %s: Trying to get id for a pipeline of Unknown type\n", __PRETTY_FUNCTION__); fflush(stdout);
+        g_assert_not_reached();
+        break;
     }
 
-    void setAppendStage(AppendStage newAppendStage)
-    {
-        // Valid transitions:
-        // NotStarted->Ongoing->NoDataToDecode->NotStarted
-        // NotStarted->Ongoing->Sampling->LastSample->NotStarted
+    printf("### %s: streamType=%d, id=%d\n", __PRETTY_FUNCTION__, static_cast<int>(m_streamType), m_id); fflush(stdout);
 
-        AppendStage oldAppendStage = m_appendStage;
-        AppendStage nextAppendStage = Invalid;
+    return m_id;
+}
 
-        bool ok = false;
-
-        switch (oldAppendStage) {
-        case NotStarted:
-            if (newAppendStage == Ongoing) {
-                ok = true;
-                m_noDataToDecodeTimeoutTag = g_timeout_add(5000, GSourceFunc(appendPipelineNoDataToDecodeTimeout), this);
-            }
-            break;
-        case Ongoing:
-            if (newAppendStage == NoDataToDecode) {
-                ok = true;
-                m_noDataToDecodeTimeoutTag = 0;
-                m_mediaSourceClient->didReceiveAllPendingSamples(m_sourceBufferPrivate.get());
-                nextAppendStage = NotStarted;
-            } else if (newAppendStage == Sampling) {
-                ok = true;
-                if (m_noDataToDecodeTimeoutTag) {
-                    g_source_remove(m_noDataToDecodeTimeoutTag);
-                    m_noDataToDecodeTimeoutTag = 0;
-                }
-
-                if (m_lastSampleTimeoutTag)
-                    printf("### %s: lastSampleTimeoutTag already exists while transitioning Ongoing-->Sampling\n", __PRETTY_FUNCTION__); fflush(stdout);
-
-                if (m_lastSampleTimeoutTag) {
-                    g_source_remove(m_lastSampleTimeoutTag);
-                    m_lastSampleTimeoutTag = 0;
-                }
-                m_lastSampleTimeoutTag = g_timeout_add(200, GSourceFunc(appendPipelineLastSampleTimeout), this);
-            }
-            break;
-        case NoDataToDecode:
-            if (newAppendStage == NotStarted) {
-                ok = true;
-            }
-            break;
-        case Sampling:
-            if (newAppendStage == Sampling) {
-                ok = true;
-                if (m_lastSampleTimeoutTag) {
-                    g_source_remove(m_lastSampleTimeoutTag);
-                    m_lastSampleTimeoutTag = 0;
-                }
-                m_lastSampleTimeoutTag = g_timeout_add(200, GSourceFunc(appendPipelineLastSampleTimeout), this);
-            }
-
-            if (newAppendStage == LastSample) {
-                ok = true;
-                m_lastSampleTimeoutTag = 0;
-
-                // TODO: Finish append.
-                m_mediaSourceClient->didReceiveAllPendingSamples(m_sourceBufferPrivate.get());
-
-                nextAppendStage = NotStarted;
-            }
-            break;
-        case LastSample:
-            if (newAppendStage == NotStarted) {
-                ok = true;
-            }
-            break;
-        case Invalid:
-            break;
-        }
-
-        if (ok)
-            m_appendStage = newAppendStage;
-        else {
-            printf("### %s: Invalid append stage transition %d --> %d\n", __PRETTY_FUNCTION__, static_cast<int>(oldAppendStage), static_cast<int>(newAppendStage)); fflush(stdout);
-        }
-
-        ASSERT(ok);
-
-        if (nextAppendStage != Invalid)
-            setAppendStage(nextAppendStage);
-    }
-
-    // Takes ownership of caps.
-    void updatePresentationSize(GstCaps* demuxersrcpadcaps)
-    {
-        if (m_demuxersrcpadcaps)
-            gst_caps_unref(m_demuxersrcpadcaps);
-        m_demuxersrcpadcaps = demuxersrcpadcaps;
-
-        GstStructure* s = gst_caps_get_structure(m_demuxersrcpadcaps, 0);
-        const gchar* structureName = gst_structure_get_name(s);
-        GstVideoInfo info;
-        bool sizeConfigured = false;
-
-#if GST_CHECK_VERSION(1, 5, 3)
-        if (gst_structure_has_name(s, "application/x-cenc")) {
-            const gchar* originalMediaType = gst_structure_get_string(s, "original-media-type");
-            if (g_str_has_prefix(originalMediaType, "video/")) {
-                int width = 0;
-                int height = 0;
-                float finalHeight = 0;
-
-                gst_structure_get_int(s, "width", &width);
-                if (gst_structure_get_int(s, "height", &height)) {
-                    gint par_n = 1;
-                    gint par_d = 1;
-
-                    gst_structure_get_fraction(s, "pixel-aspect-ratio", &par_n, &par_d);
-                    finalHeight = height * ((float) par_d / (float) par_n);
-                }
-
-                m_presentationSize = WebCore::FloatSize(width, finalHeight);
-            } else
-                m_presentationSize = WebCore::FloatSize();
-            sizeConfigured = true;
-        }
-#endif
-
-        if (!sizeConfigured) {
-            if (g_str_has_prefix(structureName, "video/") && gst_video_info_from_caps(&info, demuxersrcpadcaps)) {
-                float width, height;
-
-                width = info.width;
-                height = info.height * ((float) info.par_d / (float) info.par_n);
-
-                m_presentationSize = WebCore::FloatSize(width, height);
-            } else
-                m_presentationSize = WebCore::FloatSize();
-        }
-    }
-
-    void demuxerPadAdded(GstPad* demuxersrcpad)
-    {
-        printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
-        // TODO: Update presentation size, see webKitMediaSrcUpdatePresentationSize().
-
-        updatePresentationSize(gst_pad_get_current_caps(demuxersrcpad));
-
-        if (m_mediaType == Unknown) {
-            GstStructure* s = gst_caps_get_structure(m_demuxersrcpadcaps, 0);
-            const gchar* mediaType = gst_structure_get_name(s);
-
-            if (g_str_has_prefix(mediaType, "audio")) {
-                m_mediaType = Audio;
-                // TODO: Pass the playback pipeline instead of NULL
-                m_track = WebCore::AudioTrackPrivateGStreamer::create(NULL, id(), demuxersrcpad);
-            } else if (g_str_has_prefix(mediaType, "video")) {
-                m_mediaType = Video;
-                // TODO: Pass the playback pipeline instead of NULL
-                m_track = WebCore::VideoTrackPrivateGStreamer::create(NULL, id(), demuxersrcpad);
-            } else if (g_str_has_prefix(mediaType, "text")) {
-                m_mediaType = Text;
-                m_track = WebCore::InbandTextTrackPrivateGStreamer::create(id(), demuxersrcpad);
-            } else {
-                // No useful data, but notify anyway to complete the append operation (webKitMediaSrcLastSampleTimeout is cancelled and won't notify in this case)
-                // TODO: Adapt: source->parent->priv->mediaSourceClient->didReceiveAllPendingSamples(source->sourceBuffer);
-                // TODO: EME uses its own special types.
-                printf("### %s: (no data)\n", __PRETTY_FUNCTION__); fflush(stdout);
-                return;
-            }
-
-            didReceiveInitializationSegment();
-        }
-    }
-
-    void demuxerPadRemoved(GstPad*)
-    {
-        printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
-        // TODO: Remove this method if it's useless in the end.
-    }
-
-    void appSinkNewSample(GstSample* sample)
-    {
-        // Ignore samples if we're not expecting them.
-        if (!(m_appendStage == Ongoing || m_appendStage == Sampling))
-            return;
-
-        AtomicString trackId(AppendPipeline::trackId());
-        RefPtr<GStreamerMediaSample> mediaSample = WebCore::GStreamerMediaSample::create(gst_sample_get_buffer(sample), m_presentationSize, trackId);
-
-        // If we're beyond the duration, ignore this sample and the remaining ones.
-        MediaTime duration = m_mediaSourceClient->duration();
-        if (duration.isValid() && !duration.indefiniteTime() && mediaSample->presentationTime() > duration) {
-            printf("### %s: Detected sample (%f) beyond the duration (%f), declaring LastSample\n", __PRETTY_FUNCTION__, mediaSample->presentationTime().toFloat(), duration.toFloat()); fflush(stdout);
-            setAppendStage(LastSample);
-            return;
-        }
-
-        MediaTime timestampOffset(MediaTime::createWithDouble(m_sourceBufferPrivate->timestampOffset()));
-
-        // Add a fake sample if a gap is detected before the first sample
-        if (mediaSample->presentationTime() >= timestampOffset &&
-            mediaSample->presentationTime() <= timestampOffset + MediaTime::createWithDouble(0.1)) {
-            RefPtr<WebCore::GStreamerMediaSample> fakeSample = WebCore::GStreamerMediaSample::createFakeSample(
-                    timestampOffset, mediaSample->decodeTime(), mediaSample->presentationTime() - timestampOffset, mediaSample->presentationSize(),
-                    trackId);
-            m_mediaSourceClient->didReceiveSample(m_sourceBufferPrivate.get(), fakeSample);
-        }
-
-        m_mediaSourceClient->didReceiveSample(m_sourceBufferPrivate.get(), mediaSample);
-        setAppendStage(Sampling);
-    }
-
-    void didReceiveInitializationSegment()
-    {
-        printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
-
-        WebCore::SourceBufferPrivateClient::InitializationSegment initializationSegment;
-
-        initializationSegment.duration = m_mediaSourceClient->duration();
-        switch (m_mediaType) {
-        case Audio:
-            {
-                WebCore::SourceBufferPrivateClient::InitializationSegment::AudioTrackInformation info;
-                info.track = static_cast<AudioTrackPrivateGStreamer*>(m_track.get());
-                info.description = WebCore::GStreamerMediaDescription::create(m_demuxersrcpadcaps);
-                initializationSegment.audioTracks.append(info);
-            }
-            break;
-        case Video:
-            {
-                WebCore::SourceBufferPrivateClient::InitializationSegment::VideoTrackInformation info;
-                info.track = static_cast<VideoTrackPrivateGStreamer*>(m_track.get());
-                info.description = WebCore::GStreamerMediaDescription::create(m_demuxersrcpadcaps);
-                initializationSegment.videoTracks.append(info);
-            }
-            break;
-        default:
-            printf("%s: Unsupported or unknown stream type\n", __PRETTY_FUNCTION__); fflush(stdout);
-            ASSERT_NOT_REACHED();
-            break;
-        }
-
-        m_mediaSourceClient->didReceiveInitializationSegment(m_sourceBufferPrivate.get(), initializationSegment);
-    }
-
-    AtomicString trackId()
-    {
-        if (!m_track)
-            return AtomicString();
-
-        return m_track->id();
-    }
-
-    RefPtr<MediaSourceClientGStreamerMSE> m_mediaSourceClient;
-    RefPtr<SourceBufferPrivateGStreamer> m_sourceBufferPrivate;
-
-    // (m_mediaType, m_id) is unique.
-    gint m_id;
-
-    GstElement* m_pipeline;
-    GstElement* m_appsrc;
-    GstElement* m_typefind;
-    GstElement* m_qtdemux;
-
-    // The demuxer has one src Stream only.
-    GstElement* m_appsink;
-
-    GstCaps* m_demuxersrcpadcaps;
-    FloatSize m_presentationSize;
-
-    // Some appended data are only headers and don't generate any
-    // useful stream data for decoding. This is detected with a
-    // timeout and reported to the upper layers, so update/updateend
-    // can be generated and the append operation doesn't block.
-    guint m_noDataToDecodeTimeoutTag;
-
-    // Used to detect the last sample. Rescheduled each time a new
-    // sample arrives.
-    guint m_lastSampleTimeoutTag;
-
-    // Keeps track of the stages of append processing, to avoid
-    // performing actions inappropriate for the current stage (eg:
-    // processing more samples when the last one has been detected
-    // or the noDataToDecodeTimeout has been triggered).
+void AppendPipeline::setAppendStage(AppendStage newAppendStage)
+{
     // Valid transitions:
     // NotStarted->Ongoing->NoDataToDecode->NotStarted
-    // NotStarted->Ongoing->Sampling->...->Sampling->LastSample->NotStarted
-    AppendStage m_appendStage;
+    // NotStarted->Ongoing->Sampling->LastSample->NotStarted
 
-    MediaType m_mediaType;
-    RefPtr<WebCore::TrackPrivateBase> m_track;
-};
+    AppendStage oldAppendStage = m_appendStage;
+    AppendStage nextAppendStage = Invalid;
+
+    bool ok = false;
+
+    switch (oldAppendStage) {
+    case NotStarted:
+        if (newAppendStage == Ongoing) {
+            ok = true;
+            m_noDataToDecodeTimeoutTag = g_timeout_add(5000, GSourceFunc(appendPipelineNoDataToDecodeTimeout), this);
+        }
+        break;
+    case Ongoing:
+        if (newAppendStage == NoDataToDecode) {
+            ok = true;
+            m_noDataToDecodeTimeoutTag = 0;
+            m_mediaSourceClient->didReceiveAllPendingSamples(m_sourceBufferPrivate.get());
+            nextAppendStage = NotStarted;
+        } else if (newAppendStage == Sampling) {
+            ok = true;
+            if (m_noDataToDecodeTimeoutTag) {
+                g_source_remove(m_noDataToDecodeTimeoutTag);
+                m_noDataToDecodeTimeoutTag = 0;
+            }
+
+            if (m_lastSampleTimeoutTag)
+                printf("### %s: lastSampleTimeoutTag already exists while transitioning Ongoing-->Sampling\n", __PRETTY_FUNCTION__); fflush(stdout);
+
+            if (m_lastSampleTimeoutTag) {
+                g_source_remove(m_lastSampleTimeoutTag);
+                m_lastSampleTimeoutTag = 0;
+            }
+            m_lastSampleTimeoutTag = g_timeout_add(200, GSourceFunc(appendPipelineLastSampleTimeout), this);
+        }
+        break;
+    case NoDataToDecode:
+        if (newAppendStage == NotStarted) {
+            ok = true;
+        }
+        break;
+    case Sampling:
+        if (newAppendStage == Sampling) {
+            ok = true;
+            if (m_lastSampleTimeoutTag) {
+                g_source_remove(m_lastSampleTimeoutTag);
+                m_lastSampleTimeoutTag = 0;
+            }
+            m_lastSampleTimeoutTag = g_timeout_add(200, GSourceFunc(appendPipelineLastSampleTimeout), this);
+        }
+
+        if (newAppendStage == LastSample) {
+            ok = true;
+            m_lastSampleTimeoutTag = 0;
+
+            // TODO: Finish append.
+            m_mediaSourceClient->didReceiveAllPendingSamples(m_sourceBufferPrivate.get());
+
+            nextAppendStage = NotStarted;
+        }
+        break;
+    case LastSample:
+        if (newAppendStage == NotStarted) {
+            ok = true;
+        }
+        break;
+    case Invalid:
+        break;
+    }
+
+    if (ok)
+        m_appendStage = newAppendStage;
+    else {
+        printf("### %s: Invalid append stage transition %d --> %d\n", __PRETTY_FUNCTION__, static_cast<int>(oldAppendStage), static_cast<int>(newAppendStage)); fflush(stdout);
+    }
+
+    ASSERT(ok);
+
+    if (nextAppendStage != Invalid)
+        setAppendStage(nextAppendStage);
+}
+
+// Takes ownership of caps.
+void AppendPipeline::updatePresentationSize(GstCaps* demuxersrcpadcaps)
+{
+    if (m_demuxersrcpadcaps)
+        gst_caps_unref(m_demuxersrcpadcaps);
+    m_demuxersrcpadcaps = demuxersrcpadcaps;
+
+    GstStructure* s = gst_caps_get_structure(m_demuxersrcpadcaps, 0);
+    const gchar* structureName = gst_structure_get_name(s);
+    GstVideoInfo info;
+    bool sizeConfigured = false;
+
+#if GST_CHECK_VERSION(1, 5, 3)
+    if (gst_structure_has_name(s, "application/x-cenc")) {
+        const gchar* originalMediaType = gst_structure_get_string(s, "original-media-type");
+        if (g_str_has_prefix(originalMediaType, "video/")) {
+            int width = 0;
+            int height = 0;
+            float finalHeight = 0;
+
+            gst_structure_get_int(s, "width", &width);
+            if (gst_structure_get_int(s, "height", &height)) {
+                gint par_n = 1;
+                gint par_d = 1;
+
+                gst_structure_get_fraction(s, "pixel-aspect-ratio", &par_n, &par_d);
+                finalHeight = height * ((float) par_d / (float) par_n);
+            }
+
+            m_presentationSize = WebCore::FloatSize(width, finalHeight);
+        } else
+            m_presentationSize = WebCore::FloatSize();
+        sizeConfigured = true;
+    }
+#endif
+
+    if (!sizeConfigured) {
+        if (g_str_has_prefix(structureName, "video/") && gst_video_info_from_caps(&info, demuxersrcpadcaps)) {
+            float width, height;
+
+            width = info.width;
+            height = info.height * ((float) info.par_d / (float) info.par_n);
+
+            m_presentationSize = WebCore::FloatSize(width, height);
+        } else
+            m_presentationSize = WebCore::FloatSize();
+    }
+}
+
+void AppendPipeline::demuxerPadAdded(GstPad* demuxersrcpad)
+{
+    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    // TODO: Update presentation size, see webKitMediaSrcUpdatePresentationSize().
+
+    updatePresentationSize(gst_pad_get_current_caps(demuxersrcpad));
+
+    if (m_streamType == Unknown) {
+        GstStructure* s = gst_caps_get_structure(m_demuxersrcpadcaps, 0);
+        const gchar* mediaType = gst_structure_get_name(s);
+
+        if (g_str_has_prefix(mediaType, "audio")) {
+            m_streamType = Audio;
+            // TODO: Pass the playback pipeline instead of NULL
+            m_track = WebCore::AudioTrackPrivateGStreamer::create(NULL, id(), demuxersrcpad);
+        } else if (g_str_has_prefix(mediaType, "video")) {
+            m_streamType = Video;
+            // TODO: Pass the playback pipeline instead of NULL
+            m_track = WebCore::VideoTrackPrivateGStreamer::create(NULL, id(), demuxersrcpad);
+        } else if (g_str_has_prefix(mediaType, "text")) {
+            m_streamType = Text;
+            m_track = WebCore::InbandTextTrackPrivateGStreamer::create(id(), demuxersrcpad);
+        } else {
+            // No useful data, but notify anyway to complete the append operation (webKitMediaSrcLastSampleTimeout is cancelled and won't notify in this case)
+            // TODO: Adapt: source->parent->priv->mediaSourceClient->didReceiveAllPendingSamples(source->sourceBuffer);
+            // TODO: EME uses its own special types.
+            printf("### %s: (no data)\n", __PRETTY_FUNCTION__); fflush(stdout);
+            return;
+        }
+
+        m_playerPrivate->trackDetected(this);
+        didReceiveInitializationSegment();
+    }
+}
+
+void AppendPipeline::demuxerPadRemoved(GstPad*)
+{
+    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    // TODO: Remove this method if it's useless in the end.
+}
+
+void AppendPipeline::appSinkNewSample(GstSample* sample)
+{
+    // Ignore samples if we're not expecting them.
+    if (!(m_appendStage == Ongoing || m_appendStage == Sampling))
+        return;
+
+    AtomicString trackId(AppendPipeline::trackId());
+    RefPtr<GStreamerMediaSample> mediaSample = WebCore::GStreamerMediaSample::create(gst_sample_get_buffer(sample), m_presentationSize, trackId);
+
+    // If we're beyond the duration, ignore this sample and the remaining ones.
+    MediaTime duration = m_mediaSourceClient->duration();
+    if (duration.isValid() && !duration.indefiniteTime() && mediaSample->presentationTime() > duration) {
+        printf("### %s: Detected sample (%f) beyond the duration (%f), declaring LastSample\n", __PRETTY_FUNCTION__, mediaSample->presentationTime().toFloat(), duration.toFloat()); fflush(stdout);
+        setAppendStage(LastSample);
+        return;
+    }
+
+    MediaTime timestampOffset(MediaTime::createWithDouble(m_sourceBufferPrivate->timestampOffset()));
+
+    // Add a fake sample if a gap is detected before the first sample
+    if (mediaSample->presentationTime() >= timestampOffset &&
+        mediaSample->presentationTime() <= timestampOffset + MediaTime::createWithDouble(0.1)) {
+        RefPtr<WebCore::GStreamerMediaSample> fakeSample = WebCore::GStreamerMediaSample::createFakeSample(
+                timestampOffset, mediaSample->decodeTime(), mediaSample->presentationTime() - timestampOffset, mediaSample->presentationSize(),
+                trackId);
+        m_mediaSourceClient->didReceiveSample(m_sourceBufferPrivate.get(), fakeSample);
+    }
+
+    m_mediaSourceClient->didReceiveSample(m_sourceBufferPrivate.get(), mediaSample);
+    setAppendStage(Sampling);
+}
+
+void AppendPipeline::didReceiveInitializationSegment()
+{
+    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+
+    WebCore::SourceBufferPrivateClient::InitializationSegment initializationSegment;
+
+    initializationSegment.duration = m_mediaSourceClient->duration();
+    switch (m_streamType) {
+    case Audio:
+        {
+            WebCore::SourceBufferPrivateClient::InitializationSegment::AudioTrackInformation info;
+            info.track = static_cast<AudioTrackPrivateGStreamer*>(m_track.get());
+            info.description = WebCore::GStreamerMediaDescription::create(m_demuxersrcpadcaps);
+            initializationSegment.audioTracks.append(info);
+        }
+        break;
+    case Video:
+        {
+            WebCore::SourceBufferPrivateClient::InitializationSegment::VideoTrackInformation info;
+            info.track = static_cast<VideoTrackPrivateGStreamer*>(m_track.get());
+            info.description = WebCore::GStreamerMediaDescription::create(m_demuxersrcpadcaps);
+            initializationSegment.videoTracks.append(info);
+        }
+        break;
+    default:
+        printf("%s: Unsupported or unknown stream type\n", __PRETTY_FUNCTION__); fflush(stdout);
+        ASSERT_NOT_REACHED();
+        break;
+    }
+
+    m_mediaSourceClient->didReceiveInitializationSegment(m_sourceBufferPrivate.get(), initializationSegment);
+}
+
+AtomicString AppendPipeline::trackId()
+{
+    if (!m_track)
+        return AtomicString();
+
+    return m_track->id();
+}
 
 static void appendPipelineDemuxerPadAdded(GstElement*, GstPad* demuxersrcpad, AppendPipeline* ap)
 {
@@ -3437,7 +3457,7 @@ MediaSourceClientGStreamerMSE::~MediaSourceClientGStreamerMSE()
 
 MediaSourcePrivate::AddStatus MediaSourceClientGStreamerMSE::addSourceBuffer(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, const ContentType&)
 {
-    RefPtr<AppendPipeline> ap = adoptRef(new AppendPipeline(this, sourceBufferPrivate));
+    RefPtr<AppendPipeline> ap = adoptRef(new AppendPipeline(this, sourceBufferPrivate, m_playerPrivate.get()));
     printf("### %s: this=%p sourceBuffer=%p ap=%p\n", __PRETTY_FUNCTION__, this, sourceBufferPrivate.get(), ap.get()); fflush(stdout);
     m_playerPrivate->m_appendPipelinesMap.add(sourceBufferPrivate, ap);
     if (!m_playerPrivate->mediaSourceClient())
@@ -3525,12 +3545,15 @@ void MediaSourceClientGStreamerMSE::removedFromMediaSource(RefPtr<SourceBufferPr
 
 void MediaSourceClientGStreamerMSE::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString)
 {
-    // TODO
-    // !!!!!!!!!!!!!!!!!!!!! CONTINUE HERE
-    // ##### Use MediaPlayerPrivateGStreamerMSE::appendPipelineByTrackId() to get the right track info,
-    //       SourceBufferPrivateGStreamer or whatever is needed to find the right Stream to append in
-    //       WebKitMediaSrc. Change PlaybackPipeline::flushAndEnqueueNonDisplayingSamples() to take a
-    //       more comfortable track identifier instead of the useless AtomicString.
+    RefPtr<AppendPipeline> ap = m_playerPrivate->appendPipelineByTrackId(trackIDString);
+
+    if (!ap) {
+        printf("### %s: Invalid trackId '%s'\n", __PRETTY_FUNCTION__, trackIDString.string().latin1().data()); fflush(stdout);
+        ASSERT(ap);
+        return;
+    }
+
+    m_playerPrivate->m_playbackPipeline->flushAndEnqueueNonDisplayingSamples(samples, ap->m_sourceBufferPrivate);
 }
 
 void MediaSourceClientGStreamerMSE::enqueueSample(PassRefPtr<MediaSample> prsample, AtomicString trackIDString)
