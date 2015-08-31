@@ -109,8 +109,8 @@ class PlaybackPipeline: public RefCounted<PlaybackPipeline> {
         void markEndOfStream(MediaSourcePrivate::EndOfStreamStatus);
 
         // From SourceBufferPrivateGStreamer
-        void flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, RefPtr<SourceBufferPrivateGStreamer>);
-        void enqueueSample(PassRefPtr<MediaSample> sample, RefPtr<SourceBufferPrivateGStreamer>);
+        void flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> >);
+        void enqueueSample(PassRefPtr<MediaSample>);
 
     private:
         PlaybackPipeline();

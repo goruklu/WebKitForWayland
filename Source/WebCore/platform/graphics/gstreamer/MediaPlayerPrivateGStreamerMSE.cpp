@@ -168,6 +168,9 @@ class AppendPipeline : public ThreadSafeRefCounted<AppendPipeline> {
 public:
     enum AppendStage { Invalid, NotStarted, Ongoing, NoDataToDecode, Sampling, LastSample };
 
+    static const unsigned int s_noDataToDecodeTimeoutMsec = 500;
+    static const unsigned int s_lastSampleTimeoutMsec = 100;
+
     AppendPipeline(PassRefPtr<MediaSourceClientGStreamerMSE> mediaSourceClient, PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, MediaPlayerPrivateGStreamerMSE* playerPrivate);
     virtual ~AppendPipeline();
 
@@ -2262,6 +2265,11 @@ void MediaPlayerPrivateGStreamerMSE::notifyDurationChanged()
 void MediaPlayerPrivateGStreamerMSE::durationChanged()
 {
     float previousDuration = m_mediaDuration;
+
+    if (!m_mediaSourceClient) {
+        printf("### %s: m_mediaSourceClient is null, not doing anything\n", __PRETTY_FUNCTION__); fflush(stdout);
+        return;
+    }
     m_mediaDuration = m_mediaSourceClient->duration().toFloat();
 
     printf("### %s: previous=%f, new=%f\n", __PRETTY_FUNCTION__, previousDuration, m_mediaDuration); fflush(stdout);
@@ -3120,7 +3128,7 @@ void AppendPipeline::setAppendStage(AppendStage newAppendStage)
     case NotStarted:
         if (newAppendStage == Ongoing) {
             ok = true;
-            m_noDataToDecodeTimeoutTag = g_timeout_add(5000, GSourceFunc(appendPipelineNoDataToDecodeTimeout), this);
+            m_noDataToDecodeTimeoutTag = g_timeout_add(s_noDataToDecodeTimeoutMsec, GSourceFunc(appendPipelineNoDataToDecodeTimeout), this);
         }
         break;
     case Ongoing:
@@ -3143,7 +3151,7 @@ void AppendPipeline::setAppendStage(AppendStage newAppendStage)
                 g_source_remove(m_lastSampleTimeoutTag);
                 m_lastSampleTimeoutTag = 0;
             }
-            m_lastSampleTimeoutTag = g_timeout_add(200, GSourceFunc(appendPipelineLastSampleTimeout), this);
+            m_lastSampleTimeoutTag = g_timeout_add(s_lastSampleTimeoutMsec, GSourceFunc(appendPipelineLastSampleTimeout), this);
         }
         break;
     case NoDataToDecode:
@@ -3158,7 +3166,7 @@ void AppendPipeline::setAppendStage(AppendStage newAppendStage)
                 g_source_remove(m_lastSampleTimeoutTag);
                 m_lastSampleTimeoutTag = 0;
             }
-            m_lastSampleTimeoutTag = g_timeout_add(200, GSourceFunc(appendPipelineLastSampleTimeout), this);
+            m_lastSampleTimeoutTag = g_timeout_add(s_lastSampleTimeoutMsec, GSourceFunc(appendPipelineLastSampleTimeout), this);
         }
 
         if (newAppendStage == LastSample) {
@@ -3273,6 +3281,9 @@ void AppendPipeline::demuxerPadAdded(GstPad* demuxersrcpad)
 
         m_playerPrivate->trackDetected(this);
         didReceiveInitializationSegment();
+    } else {
+        // TODO: Reconfigure track, this pad should supersede the existing one
+        printf("### %s: TODO: Reconfigure track?\n", __PRETTY_FUNCTION__);
     }
 }
 
@@ -3545,20 +3556,12 @@ void MediaSourceClientGStreamerMSE::removedFromMediaSource(RefPtr<SourceBufferPr
 
 void MediaSourceClientGStreamerMSE::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString)
 {
-    RefPtr<AppendPipeline> ap = m_playerPrivate->appendPipelineByTrackId(trackIDString);
-
-    if (!ap) {
-        printf("### %s: Invalid trackId '%s'\n", __PRETTY_FUNCTION__, trackIDString.string().latin1().data()); fflush(stdout);
-        ASSERT(ap);
-        return;
-    }
-
-    m_playerPrivate->m_playbackPipeline->flushAndEnqueueNonDisplayingSamples(samples, ap->m_sourceBufferPrivate);
+    m_playerPrivate->m_playbackPipeline->flushAndEnqueueNonDisplayingSamples(samples);
 }
 
 void MediaSourceClientGStreamerMSE::enqueueSample(PassRefPtr<MediaSample> prsample, AtomicString trackIDString)
 {
-    // TODO
+    m_playerPrivate->m_playbackPipeline->enqueueSample(prsample);
 }
 
 void MediaSourceClientGStreamerMSE::didReceiveInitializationSegment(SourceBufferPrivateGStreamer* sourceBuffer, const SourceBufferPrivateClient::InitializationSegment& initializationSegment)
