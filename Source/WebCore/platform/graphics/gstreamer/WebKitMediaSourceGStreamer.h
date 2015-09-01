@@ -112,6 +112,7 @@ class PlaybackPipeline: public RefCounted<PlaybackPipeline> {
         void flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> >);
         void enqueueSample(PassRefPtr<MediaSample>);
 
+        GstElement* pipeline();
     private:
         PlaybackPipeline();
         GRefPtr<WebKitMediaSrc> m_src;
