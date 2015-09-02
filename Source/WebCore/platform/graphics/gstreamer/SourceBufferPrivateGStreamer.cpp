@@ -54,7 +54,6 @@ SourceBufferPrivateGStreamer::SourceBufferPrivateGStreamer(MediaSourceGStreamer*
     , m_mediaSource(mediaSource)
     , m_type(contentType)
     , m_client(client)
-    , m_aborted(false)
 {
 }
 
@@ -97,8 +96,8 @@ void SourceBufferPrivateGStreamer::appendComplete(SourceBufferPrivateClient::App
 
 void SourceBufferPrivateGStreamer::abort()
 {
-    // This is a hint for the lower layers (WebKitMediaSrc) to force a reset when the next data is appended
-    m_aborted = true;
+    if (m_client)
+        m_client->abort(this);
 }
 
 void SourceBufferPrivateGStreamer::removedFromMediaSource()

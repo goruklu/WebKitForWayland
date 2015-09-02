@@ -181,7 +181,7 @@ public:
     void keyAdded();
 #endif
 
-    void trackDetected(RefPtr<AppendPipeline>);
+    void trackDetected(RefPtr<AppendPipeline>, RefPtr<WebCore::TrackPrivateBase> oldTrack, RefPtr<WebCore::TrackPrivateBase> newTrack);
 
     using RefCounted<MediaPlayerPrivateGStreamerMSE>::ref;
     using RefCounted<MediaPlayerPrivateGStreamerMSE>::deref;
@@ -363,6 +363,7 @@ class MediaSourceClientGStreamerMSE: public RefCounted<MediaSourceClientGStreame
         void markEndOfStream(MediaSourcePrivate::EndOfStreamStatus);
 
         // From SourceBufferPrivateGStreamer
+        void abort(PassRefPtr<SourceBufferPrivateGStreamer>);
         bool append(PassRefPtr<SourceBufferPrivateGStreamer>, const unsigned char*, unsigned);
         void appendComplete(SourceBufferPrivateClient::AppendResult);
         void removedFromMediaSource(RefPtr<SourceBufferPrivateGStreamer>);

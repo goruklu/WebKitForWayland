@@ -104,6 +104,7 @@ class PlaybackPipeline: public RefCounted<PlaybackPipeline> {
         MediaSourcePrivate::AddStatus addSourceBuffer(RefPtr<SourceBufferPrivateGStreamer>);
         void removeSourceBuffer(RefPtr<SourceBufferPrivateGStreamer>);
         void attachTrack(RefPtr<SourceBufferPrivateGStreamer>, RefPtr<TrackPrivateBase>, GstCaps*);
+        void reattachTrack(RefPtr<SourceBufferPrivateGStreamer>, RefPtr<TrackPrivateBase>, GstCaps*);
 
         // From MediaSourceGStreamer
         void markEndOfStream(MediaSourcePrivate::EndOfStreamStatus);
@@ -115,7 +116,7 @@ class PlaybackPipeline: public RefCounted<PlaybackPipeline> {
         GstElement* pipeline();
     private:
         PlaybackPipeline();
-        GRefPtr<WebKitMediaSrc> m_src;
+        GRefPtr<WebKitMediaSrc> m_webKitMediaSrc;
 };
 
 };

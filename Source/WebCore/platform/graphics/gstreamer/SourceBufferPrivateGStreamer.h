@@ -67,8 +67,6 @@ public:
     virtual void setActive(bool) override;
     virtual void stopAskingForMoreSamples(AtomicString) override;
     virtual void notifyClientWhenReadyForMoreSamples(AtomicString) override;
-    virtual bool isAborted() { return m_aborted; }
-    virtual void resetAborted() { m_aborted = false; }
     virtual double timestampOffset() const;
 
 private:
@@ -85,7 +83,6 @@ private:
     ContentType m_type;
     RefPtr<MediaSourceClientGStreamerMSE> m_client;
     SourceBufferPrivateClient* m_sourceBufferPrivateClient;
-    bool m_aborted;
 };
 
 }
