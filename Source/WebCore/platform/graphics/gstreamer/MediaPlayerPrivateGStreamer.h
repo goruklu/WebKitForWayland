@@ -39,11 +39,6 @@
 #include <wtf/text/AtomicStringHash.h>
 #endif
 
-#if ENABLE(MEDIA_SOURCE)
-#include "MediaSourceGStreamer.h"
-#include "WebKitMediaSourceGStreamer.h"
-#endif
-
 typedef struct _GstBuffer GstBuffer;
 typedef struct _GstMessage GstMessage;
 typedef struct _GstElement GstElement;
@@ -62,6 +57,10 @@ class InbandTextTrackPrivateGStreamer;
 class MediaPlayerRequestInstallMissingPluginsCallback;
 class VideoTrackPrivateGStreamer;
 
+#if ENABLE(MEDIA_SOURCE)
+class MediaSourcePrivateClient;
+#endif
+
 class MediaPlayerPrivateGStreamer : public MediaPlayerPrivateGStreamerBase {
 public:
     explicit MediaPlayerPrivateGStreamer(MediaPlayer*);
@@ -75,10 +74,10 @@ public:
     bool hasVideo() const override { return m_hasVideo; }
     bool hasAudio() const override { return m_hasAudio; }
 
-    void load(const String &url) override;
 #if ENABLE(MEDIA_SOURCE)
-    void load(const String& url, MediaSourcePrivateClient*) override;
+    void load(const String& url, MediaSourcePrivateClient* mediaSource) override;
 #endif
+    void load(const String &url) override;
 #if ENABLE(MEDIA_STREAM)
     void load(MediaStreamPrivate&) override;
 #endif
@@ -95,13 +94,6 @@ public:
     float duration() const override;
     float currentTime() const override;
     void seek(float) override;
-
-#if ENABLE(MEDIA_SOURCE)
-    void setReadyState(MediaPlayer::ReadyState state) override;
-    void waitForSeekCompleted() override;
-    void seekCompleted() override;
-    MediaSourcePrivateClient* mediaSourcePrivateClient() { return m_mediaSource.get(); }
-#endif
 
     void setRate(float) override;
     double rate() const override;
@@ -153,9 +145,6 @@ public:
 #endif
 
     bool isLiveStream() const override { return m_isStreaming; }
-#if ENABLE(MEDIA_SOURCE)
-    void notifyAppendComplete();
-#endif
 
 private:
     static void getSupportedTypes(HashSet<String>&);
@@ -192,16 +181,6 @@ private:
     String engineDescription() const override { return "GStreamer"; }
     bool didPassCORSAccessCheck() const override;
     bool canSaveMediaData() const override;
-
-#if ENABLE(MEDIA_SOURCE)
-    // TODO: Implement
-    unsigned long totalVideoFrames() override { return 0; }
-    unsigned long droppedVideoFrames() override { return 0; }
-    unsigned long corruptedVideoFrames() override { return 0; }
-    MediaTime totalFrameDelay() override { return MediaTime::zeroTime(); }
-    GRefPtr<GstCaps> currentDemuxerCaps() const override;
-    bool timeIsBuffered(float);
-#endif
 
 private:
     GRefPtr<GstElement> m_source;
@@ -263,12 +242,7 @@ private:
 #if ENABLE(VIDEO_TRACK) && USE(GSTREAMER_MPEGTS)
     HashMap<AtomicString, RefPtr<InbandMetadataTextTrackPrivateGStreamer>> m_metadataTracks;
 #endif
-#if ENABLE(MEDIA_SOURCE)
-    RefPtr<MediaSourcePrivateClient> m_mediaSource;
-    bool isMediaSource() const { return m_mediaSource && WEBKIT_IS_MEDIA_SRC(m_source.get()); }
-#else
     bool isMediaSource() const { return false; }
-#endif
 #if USE(GSTREAMER_GL)
     GstGLContext* m_glContext;
     GstGLDisplay* m_glDisplay;
