@@ -173,7 +173,6 @@ public:
 #endif
 
     bool isLiveStream() const override { return m_isStreaming; }
-    void notifyAppendComplete();
 
 #if ENABLE(ENCRYPTED_MEDIA_V2)
     void needKey(RefPtr<Uint8Array> initData);
@@ -182,6 +181,7 @@ public:
 #endif
 
     void trackDetected(RefPtr<AppendPipeline>, RefPtr<WebCore::TrackPrivateBase> oldTrack, RefPtr<WebCore::TrackPrivateBase> newTrack);
+    void notifySeekNeedsData(const MediaTime& seekTime);
 
     using RefCounted<MediaPlayerPrivateGStreamerMSE>::ref;
     using RefCounted<MediaPlayerPrivateGStreamerMSE>::deref;

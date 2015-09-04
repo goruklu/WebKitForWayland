@@ -102,6 +102,11 @@ struct _Source {
     GstSegment segment;
 };
 
+enum OnSeekDataAction {
+    Nothing,
+    MediaSourceSeekToTime
+};
+
 struct _WebKitMediaSrcPrivate
 {
     _WebKitMediaSrcPrivate()
@@ -133,13 +138,14 @@ struct _WebKitMediaSrcPrivate
     unsigned numberOfPads;
 
     MediaTime seekTime;
-    int flushAndReenqueueCount;
     GstEvent* seekEvent;
-    int ongoingAppends;
 
-    bool appSrcSeekDataTriggered;
+    // On seek, we wait for all the seekDatas, then for all the needDatas, and then run the nextAction.
+    OnSeekDataAction appSrcSeekDataNextAction;
+    int appSrcSeekDataCount;
+    int appSrcNeedDataCount;
 
-    WebCore::MediaPlayerPrivateGStreamerBase* mediaPlayerPrivate;
+    WebCore::MediaPlayerPrivateGStreamerMSE* mediaPlayerPrivate;
     WebCore::PlaybackPipeline* mediaSourceClient;
 };
 
@@ -180,8 +186,6 @@ static gboolean webKitMediaSrcNotifyAppendCompleteToPlayer(WebKitMediaSrc*);
 inline static AtomicString getStreamTrackId(Stream* stream);
 static GstClockTime mediaTimeToGstClockTime(MediaTime);
 static GstClockTime floatToGstClockTime(float);
-
-static void webkit_media_src_set_appending(WebKitMediaSrc*, gboolean);
 
 static void app_src_need_data (GstAppSrc *src, guint length, gpointer user_data);
 static void app_src_enough_data (GstAppSrc *src, gpointer user_data);
@@ -259,9 +263,11 @@ static void webkit_media_src_class_init(WebKitMediaSrcClass* klass)
 static void webkit_media_src_init(WebKitMediaSrc* src)
 {
     src->priv = WEBKIT_MEDIA_SRC_GET_PRIVATE(src);
-    src->priv->seekTime = MediaTime::invalidTime();
-    src->priv->ongoingAppends = 0;
     new (src->priv) WebKitMediaSrcPrivate();
+    src->priv->seekTime = MediaTime::invalidTime();
+    src->priv->appSrcSeekDataCount = 0;
+    src->priv->appSrcNeedDataCount = 0;
+    src->priv->appSrcSeekDataNextAction = Nothing;
 }
 
 static void webKitMediaSrcFinalize(GObject* object)
@@ -882,26 +888,80 @@ static Source* getSourceBySourceBufferPrivate(WebKitMediaSrc* src, WebCore::Sour
     return NULL;
 }
 
+static gboolean seekNeedsDataMainThread (gpointer user_data)
+{
+    WebKitMediaSrc* webKitMediaSrc = static_cast<WebKitMediaSrc*>(user_data);
+    g_assert(WEBKIT_IS_MEDIA_SRC(webKitMediaSrc));
+
+    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+
+    g_assert(WTF::isMainThread());
+
+    GST_OBJECT_LOCK(webKitMediaSrc);
+    MediaTime seekTime = webKitMediaSrc->priv->seekTime;
+    RefPtr<WebCore::MediaPlayerPrivateGStreamerMSE> mediaPlayerPrivate(webKitMediaSrc->priv->mediaPlayerPrivate);
+    GST_OBJECT_UNLOCK(webKitMediaSrc);
+    mediaPlayerPrivate->notifySeekNeedsData(seekTime);
+
+    return G_SOURCE_REMOVE;
+}
+
 static void app_src_need_data (GstAppSrc *src, guint length, gpointer user_data)
 {
+    WebKitMediaSrc* webKitMediaSrc = static_cast<WebKitMediaSrc*>(user_data);
+    g_assert(WEBKIT_IS_MEDIA_SRC(webKitMediaSrc));
+
+    OnSeekDataAction appSrcSeekDataNextAction;
+    bool allAppSrcsNeedDataAfterSeek = false;
+
+    GST_OBJECT_LOCK(webKitMediaSrc);
+    int numAppSrcs = g_list_length(webKitMediaSrc->priv->sources);
+
+    if (webKitMediaSrc->priv->appSrcSeekDataCount > 0) {
+        ++webKitMediaSrc->priv->appSrcNeedDataCount;
+        if (webKitMediaSrc->priv->appSrcSeekDataCount == numAppSrcs && webKitMediaSrc->priv->appSrcNeedDataCount == numAppSrcs) {
+            printf("### %s: All need_datas completed\n", __PRETTY_FUNCTION__); fflush(stdout);
+            allAppSrcsNeedDataAfterSeek = true;
+            appSrcSeekDataNextAction = webKitMediaSrc->priv->appSrcSeekDataNextAction;
+            webKitMediaSrc->priv->appSrcSeekDataCount = 0;
+            webKitMediaSrc->priv->appSrcNeedDataCount = 0;
+            webKitMediaSrc->priv->appSrcSeekDataNextAction = Nothing;
+        }
+    }
+    GST_OBJECT_UNLOCK(webKitMediaSrc);
+
+    if (allAppSrcsNeedDataAfterSeek) {
+        printf("### %s: All expected app_src_seek_data() and app_src_need_data() calls performed. Running next action (%d)\n", __PRETTY_FUNCTION__, static_cast<int>(appSrcSeekDataNextAction)); fflush(stdout);
+
+        switch (appSrcSeekDataNextAction) {
+        case MediaSourceSeekToTime:
+            if (WTF::isMainThread())
+                seekNeedsDataMainThread(user_data);
+            else
+                g_timeout_add(0, GSourceFunc(seekNeedsDataMainThread), user_data);
+            break;
+        case Nothing:
+            break;
+        }
+    }
+
 
 }
 
 static void app_src_enough_data (GstAppSrc *src, gpointer user_data)
 {
-
 }
 
 static gboolean app_src_seek_data (GstAppSrc *src, guint64 offset, gpointer user_data)
 {
-    printf("### %s: offset=%" GST_TIME_FORMAT "\n", __PRETTY_FUNCTION__, GST_TIME_ARGS(offset)); fflush(stdout);
+    g_assert(WTF::isMainThread());
 
     WebKitMediaSrc* webKitMediaSrc = static_cast<WebKitMediaSrc*>(user_data);
 
     g_assert(WEBKIT_IS_MEDIA_SRC(webKitMediaSrc));
 
     GST_OBJECT_LOCK(webKitMediaSrc);
-    webKitMediaSrc->priv->appSrcSeekDataTriggered = true;
+    webKitMediaSrc->priv->appSrcSeekDataCount++;
     GST_OBJECT_UNLOCK(webKitMediaSrc);
 
     return TRUE;
@@ -1384,7 +1444,7 @@ void PlaybackPipeline::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSa
     }
 
     AtomicString trackId = samples[0]->trackID();
-    printf("### %s: trackId=%s\n", __PRETTY_FUNCTION__, trackId.string().utf8().data()); fflush(stdout);
+    printf("### %s: trackId=%s PTS[0]=%f ... PTS[n]=%f\n", __PRETTY_FUNCTION__, trackId.string().utf8().data(), samples[0]->presentationTime().toFloat(), samples[samples.size()-1]->presentationTime().toFloat()); fflush(stdout);
 
     GST_DEBUG_OBJECT(m_webKitMediaSrc.get(), "Flushing and re-enqueing %d samples for stream %s", samples.size(), trackId.string().utf8().data());
 
@@ -1409,9 +1469,7 @@ void PlaybackPipeline::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSa
         gst_query_unref(query);
     }
 
-    GST_OBJECT_LOCK(m_webKitMediaSrc.get());
-    m_webKitMediaSrc.get()->priv->appSrcSeekDataTriggered = false;
-    GST_OBJECT_UNLOCK(m_webKitMediaSrc.get());
+    // Actually no need to flush. The seek preparations have done it for us.
 
     // TODO: This affects all the pipeline instead of only the intended appsrc.
     {
@@ -1424,14 +1482,17 @@ void PlaybackPipeline::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSa
         */
 
         // Flush only.
+        /*
         gboolean result = gst_element_seek(pipeline(), rate, GST_FORMAT_UNDEFINED,
                 static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH),
                 GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE,
                 GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE);
 
         g_assert(result);
+        */
     }
 
+    /*
     {
         bool appSrcSeekDataTriggered;
         // Ensure that the seek-data signal on appsrc has been triggered.
@@ -1441,6 +1502,7 @@ void PlaybackPipeline::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSa
 
         g_assert(appSrcSeekDataTriggered);
     }
+    */
 
     for (Vector<RefPtr<MediaSample> >::iterator it = samples.begin(); it != samples.end(); ++it) {
         GStreamerMediaSample* sample = static_cast<GStreamerMediaSample*>(it->get());
@@ -1457,7 +1519,7 @@ void PlaybackPipeline::enqueueSample(PassRefPtr<MediaSample> prsample)
     RefPtr<MediaSample> rsample = prsample;
     AtomicString trackId = rsample->trackID();
 
-    printf("### %s: trackId=%s\n", __PRETTY_FUNCTION__, trackId.string().utf8().data()); fflush(stdout);
+    printf("### %s: trackId=%s PTS=%f\n", __PRETTY_FUNCTION__, trackId.string().utf8().data(), rsample->presentationTime().toFloat()); fflush(stdout);
 
     GST_DEBUG_OBJECT(m_webKitMediaSrc.get(), "Enqueing sample to stream %s at %" GST_TIME_FORMAT, trackId.string().utf8().data(), GST_TIME_ARGS(floatToGstClockTime(rsample->presentationTime().toDouble())));
     GST_OBJECT_LOCK(m_webKitMediaSrc.get());
@@ -1567,7 +1629,7 @@ GstPad* webkit_media_src_get_text_pad(WebKitMediaSrc* src, guint i)
     return result;
 }
 
-void webkit_media_src_set_mediaplayerprivate(WebKitMediaSrc* src, WebCore::MediaPlayerPrivateGStreamerBase* mediaPlayerPrivate)
+void webkit_media_src_set_mediaplayerprivate(WebKitMediaSrc* src, WebCore::MediaPlayerPrivateGStreamerMSE* mediaPlayerPrivate)
 {
     GST_OBJECT_LOCK(src);
     // Set to 0 on MediaPlayerPrivateGStreamer destruction, never a dangling pointer
@@ -1575,63 +1637,16 @@ void webkit_media_src_set_mediaplayerprivate(WebKitMediaSrc* src, WebCore::Media
     GST_OBJECT_UNLOCK(src);
 }
 
-void webkit_media_src_set_seek_time(WebKitMediaSrc* src, const MediaTime& time)
+void webkit_media_src_prepare_seek(WebKitMediaSrc* src, const MediaTime& time)
 {
-    src->priv->seekTime = time;
-    src->priv->flushAndReenqueueCount = 0;
-}
-
-void webkit_media_src_perform_seek(WebKitMediaSrc* src, gint64 position, float rate)
-{
-    /*
     GST_OBJECT_LOCK(src);
-    guint32 seqnum;
-    seqnum = gst_util_seqnum_next ();
-    for (GList* sources = src->priv->sources; sources; sources = sources->next) {
-        Source* source = (Source*)sources->data;
-        GRefPtr<GstPad> pad = gst_element_get_static_pad(source->demuxer, "sink");
-        GstEvent* event = gst_event_new_flush_start();
-        gst_event_set_seqnum(event, seqnum);
-        gst_pad_send_event(pad.get(), event);
+    src->priv->seekTime = time;
+    src->priv->appSrcSeekDataCount = 0;
+    src->priv->appSrcNeedDataCount = 0;
 
-        // FIXME: perform actual flush here.
-        
-        event = gst_event_new_flush_stop(TRUE);
-        gst_event_set_seqnum(event, seqnum);
-        gst_pad_send_event(pad.get(), event);
-
-
-        GstFormat format = GST_FORMAT_TIME;
-        GstSeekFlags flags = GST_SEEK_FLAG_FLUSH;
-        GstSeekType start_type = GST_SEEK_TYPE_SET;
-        gint64 start = position;
-        GstSeekType stop_type = GST_SEEK_TYPE_SET;
-        gint64 stop = GST_CLOCK_TIME_NONE;
-        GstSegment segment;
-        gboolean update;
-
-        //segment = gst_segment_new();
-        //segment->format = format;
-
-        gst_segment_init(&segment, format);
-
-        //memcpy(&segment, &source->segment, sizeof(GstSegment));
-        gst_segment_do_seek(&segment, rate, format, flags, start_type, start, stop_type, stop, &update);
-
-        source->segment = segment;
-        g_printerr("update: %d\n", update);
-
-        source->segmentPending = true;
-        //gst_pad_send_event(pad.get(), gst_event_new_segment(segment));
-        
-
-        // for (size_t index = 0; index < source->streams.size(); index++) {
-        //     Stream* stream = source->streams[index];
-        //     GstPad* pad = stream->demuxersrcpad;
-        // }
-    }
+    // The pending action will be performed in app_src_seek_data().
+    src->priv->appSrcSeekDataNextAction = MediaSourceSeekToTime;
     GST_OBJECT_UNLOCK(src);
-    */
 }
 
 static GstClockTime mediaTimeToGstClockTime(MediaTime time)
@@ -1651,9 +1666,9 @@ static GstClockTime floatToGstClockTime(float time)
     return GST_TIMEVAL_TO_TIME(timeValue);
 }
 
+#if 0
 void webkit_media_src_segment_needed(WebKitMediaSrc* src, WebCore::StreamType streamType)
 {
-#if 0
     // The video sink has received reset-time and needs a new segment before
     // new frames can be pushed. The new segment will be pushed to the
     // multiqueue video srcpad
@@ -1707,20 +1722,8 @@ void webkit_media_src_segment_needed(WebKitMediaSrc* src, WebCore::StreamType st
         gst_pad_push_event(demuxersrcpad, gst_event_new_segment(segment));
         gst_segment_free(segment);
     }
+}
 #endif
-}
-
-gboolean webkit_media_src_is_appending(WebKitMediaSrc* src)
-{
-    gboolean isAppending = FALSE;
-
-    GST_OBJECT_LOCK(src);
-    if (src->priv)
-        isAppending = (src->priv->ongoingAppends > 0);
-    GST_OBJECT_UNLOCK(src);
-
-    return isAppending;
-}
 
 #if 0
 static gboolean webKitMediaSrcNotifyAppendCompleteToPlayer(WebKitMediaSrc* src)
@@ -1740,25 +1743,6 @@ static gboolean webKitMediaSrcNotifyAppendCompleteToPlayer(WebKitMediaSrc* src)
     return G_SOURCE_REMOVE;
 }
 #endif
-
-static void webkit_media_src_set_appending(WebKitMediaSrc* src, gboolean isAppending)
-{
-#if 0
-    // WebKitMediaSrc should be locked at this point.
-    if (src->priv) {
-        gboolean wasAppending = (src->priv->ongoingAppends > 0);
-        if (isAppending)
-            src->priv->ongoingAppends++;
-        else if (wasAppending)
-            src->priv->ongoingAppends--;
-
-        printf("### %s: %s --> %s ongoingAppends=%d\n", __PRETTY_FUNCTION__, (wasAppending)?"true":"false", (isAppending)?"true":"false", src->priv->ongoingAppends); fflush(stdout);
-
-        if (wasAppending && src->priv->ongoingAppends == 0)
-            g_timeout_add(0, GSourceFunc(webKitMediaSrcNotifyAppendCompleteToPlayer), gst_object_ref(src));
-    }
-#endif
-}
 
 namespace WTF {
 template <> GRefPtr<WebKitMediaSrc> adoptGRef(WebKitMediaSrc* ptr)
