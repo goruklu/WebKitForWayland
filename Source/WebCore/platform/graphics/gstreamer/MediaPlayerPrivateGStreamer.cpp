@@ -88,30 +88,6 @@ static const char* dumpReadyState(WebCore::MediaPlayer::ReadyState readyState)
     }
 }
 
-static void callOnMainThreadAndWait(std::function<void ()> function)
-{
-    if (isMainThread()) {
-        function();
-        return;
-    }
-
-    std::mutex mutex;
-    std::condition_variable conditionVariable;
-
-    bool isFinished = false;
-
-    callOnMainThread([&] {
-        function();
-
-        std::lock_guard<std::mutex> lock(mutex);
-        isFinished = true;
-        conditionVariable.notify_one();
-    });
-
-    std::unique_lock<std::mutex> lock(mutex);
-    conditionVariable.wait(lock, [&] { return isFinished; });
-}
-
 // Max interval in seconds to stay in the READY state on manual
 // state change requests.
 static const unsigned gReadyStateTimerInterval = 60;

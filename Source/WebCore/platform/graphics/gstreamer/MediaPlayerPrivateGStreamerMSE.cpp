@@ -129,30 +129,6 @@ static const char* dumpReadyState(WebCore::MediaPlayer::ReadyState readyState)
     }
 }
 
-static void callOnMainThreadAndWait(std::function<void ()> function)
-{
-    if (isMainThread()) {
-        function();
-        return;
-    }
-
-    std::mutex mutex;
-    std::condition_variable conditionVariable;
-
-    bool isFinished = false;
-
-    callOnMainThread([&] {
-        function();
-
-        std::lock_guard<std::mutex> lock(mutex);
-        isFinished = true;
-        conditionVariable.notify_one();
-    });
-
-    std::unique_lock<std::mutex> lock(mutex);
-    conditionVariable.wait(lock, [&] { return isFinished; });
-}
-
 // Max interval in seconds to stay in the READY state on manual
 // state change requests.
 static const unsigned gReadyStateTimerInterval = 60;
@@ -1433,7 +1409,6 @@ gboolean MediaPlayerPrivateGStreamerMSE::handleMessage(GstMessage* message)
         break;
     case GST_MESSAGE_ELEMENT:
         if (gst_is_missing_plugin_message(message)) {
-            GUniquePtr<char> detail(gst_missing_plugin_message_get_installer_detail(message));
             if (gst_install_plugins_supported()) {
                 m_missingPluginsCallback = MediaPlayerRequestInstallMissingPluginsCallback::create([this](uint32_t result) {
                     m_missingPluginsCallback = nullptr;
@@ -1443,7 +1418,9 @@ gboolean MediaPlayerPrivateGStreamerMSE::handleMessage(GstMessage* message)
                     changePipelineState(GST_STATE_READY);
                     changePipelineState(GST_STATE_PAUSED);
                 });
-                m_player->client().requestInstallMissingPlugins(String::fromUTF8(detail.get()), *m_missingPluginsCallback);
+                GUniquePtr<char> detail(gst_missing_plugin_message_get_installer_detail(message));
+                GUniquePtr<char> description(gst_missing_plugin_message_get_description(message));
+                m_player->client().requestInstallMissingPlugins(String::fromUTF8(detail.get()), String::fromUTF8(description.get()), *m_missingPluginsCallback);
             }
         }
 #if USE(GSTREAMER_MPEGTS)
