@@ -2104,6 +2104,12 @@ MediaPlayer::SupportsType MediaPlayerPrivateGStreamer::supportsType(const MediaE
 {
     MediaPlayer::SupportsType result = MediaPlayer::IsNotSupported;
 
+#if ENABLE(MEDIA_SOURCE)
+    // MediaPlayerPrivateGStreamerMSE is in charge of mediasource playback, not us.
+    if (parameters.isMediaSource)
+        return result;
+#endif
+
     if (parameters.type.isNull() || parameters.type.isEmpty())
         return result;
 
