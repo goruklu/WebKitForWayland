@@ -467,6 +467,11 @@ void MediaPlayerPrivateGStreamerMSE::load(const String& urlString)
     if (!initializeGStreamerAndRegisterWebKitElements())
         return;
 
+    if (!urlString.startsWith("mediasource")) {
+        LOG_MEDIA_MESSAGE("Unsupported url: %s", urlString.utf8().data());
+        return;
+    }
+
     URL url(URL(), urlString);
     if (url.isBlankURL())
         return;
@@ -2193,95 +2198,8 @@ static HashSet<String> mimeTypeCache()
         return cache;
 
     const char* mimeTypes[] = {
-        "application/ogg",
-        "application/vnd.apple.mpegurl",
-        "application/vnd.rn-realmedia",
-        "application/x-3gp",
-        "application/x-pn-realaudio",
-        "application/x-mpegurl",
-        "audio/3gpp",
-        "audio/aac",
-        "audio/flac",
-        "audio/iLBC-sh",
-        "audio/midi",
-        "audio/mobile-xmf",
-        "audio/mp1",
-        "audio/mp2",
-        "audio/mp3",
         "audio/mp4",
-        "audio/mpeg",
-        "audio/ogg",
-        "audio/opus",
-        "audio/qcelp",
-        "audio/riff-midi",
-        "audio/speex",
-        "audio/wav",
-        "audio/webm",
-        "audio/x-ac3",
-        "audio/x-aiff",
-        "audio/x-amr-nb-sh",
-        "audio/x-amr-wb-sh",
-        "audio/x-au",
-        "audio/x-ay",
-        "audio/x-celt",
-        "audio/x-dts",
-        "audio/x-flac",
-        "audio/x-gbs",
-        "audio/x-gsm",
-        "audio/x-gym",
-        "audio/x-imelody",
-        "audio/x-ircam",
-        "audio/x-kss",
-        "audio/x-m4a",
-        "audio/x-mod",
-        "audio/x-mp3",
-        "audio/x-mpeg",
-        "audio/x-musepack",
-        "audio/x-nist",
-        "audio/x-nsf",
-        "audio/x-paris",
-        "audio/x-sap",
-        "audio/x-sbc",
-        "audio/x-sds",
-        "audio/x-shorten",
-        "audio/x-sid",
-        "audio/x-spc",
-        "audio/x-speex",
-        "audio/x-svx",
-        "audio/x-ttafile",
-        "audio/x-vgm",
-        "audio/x-voc",
-        "audio/x-vorbis+ogg",
-        "audio/x-w64",
-        "audio/x-wav",
-        "audio/x-wavpack",
-        "audio/x-wavpack-correction",
-        "video/3gpp",
-        "video/flv",
-        "video/mj2",
-        "video/mp2t",
-        "video/mp4",
-        "video/mpeg",
-        "video/mpegts",
-        "video/ogg",
-        "video/quicktime",
-        "video/vivo",
-        "video/webm",
-        "video/x-cdxa",
-        "video/x-dirac",
-        "video/x-dv",
-        "video/x-fli",
-        "video/x-flv",
-        "video/x-h263",
-        "video/x-ivf",
-        "video/x-m4v",
-        "video/x-matroska",
-        "video/x-mng",
-        "video/x-ms-asf",
-        "video/x-msvideo",
-        "video/x-mve",
-        "video/x-nuv",
-        "video/x-vcd"
+        "video/mp4"
     };
 
     for (unsigned i = 0; i < (sizeof(mimeTypes) / sizeof(*mimeTypes)); ++i)
@@ -2465,8 +2383,11 @@ MediaPlayer::SupportsType MediaPlayerPrivateGStreamerMSE::supportsType(const Med
     if (parameters.type.endsWith("webm"))
         return result;
 
-    if (parameters.type.isNull() || parameters.type.isEmpty())
+    // Youtube TV provides empty types for some videos and we want to be selected as best media engine for them.
+    if (parameters.type.isNull() || parameters.type.isEmpty()) {
+        result = MediaPlayer::MayBeSupported;
         return result;
+    }
 
     // spec says we should not return "probably" if the codecs string is empty
     if (mimeTypeCache().contains(parameters.type))

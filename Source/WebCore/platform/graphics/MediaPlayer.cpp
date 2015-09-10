@@ -204,12 +204,12 @@ static void buildMediaEnginesVector()
         MediaPlayerPrivateQTKit::registerMediaEngine(addMediaEngine);
 #endif
 
-#if ENABLE(VIDEO) && USE(GSTREAMER) && ENABLE(MEDIA_SOURCE) && ENABLE(VIDEO_TRACK)
-    MediaPlayerPrivateGStreamerMSE::registerMediaEngine(addMediaEngine);
-#endif
-
 #if defined(PlatformMediaEngineClassName)
     PlatformMediaEngineClassName::registerMediaEngine(addMediaEngine);
+#endif
+
+#if ENABLE(VIDEO) && USE(GSTREAMER) && ENABLE(MEDIA_SOURCE) && ENABLE(VIDEO_TRACK)
+    MediaPlayerPrivateGStreamerMSE::registerMediaEngine(addMediaEngine);
 #endif
 
     haveMediaEnginesVector = true;
@@ -252,15 +252,17 @@ static const AtomicString& codecs()
 
 static const MediaPlayerFactory* bestMediaEngineForSupportParameters(const MediaEngineSupportParameters& parameters, const MediaPlayerFactory* current = nullptr)
 {
-    if (parameters.type.isEmpty() && !parameters.isMediaSource && !parameters.isMediaStream)
-        return nullptr;
-
-    // 4.8.10.3 MIME types - In the absence of a specification to the contrary, the MIME type "application/octet-stream"
-    // when used with parameters, e.g. "application/octet-stream;codecs=theora", is a type that the user agent knows 
-    // it cannot render.
-    if (parameters.type == applicationOctetStream()) {
-        if (!parameters.codecs.isEmpty())
+    if (!parameters.isMediaSource && !parameters.isMediaStream) {
+        if (parameters.type.isEmpty())
             return nullptr;
+
+        // 4.8.10.3 MIME types - In the absence of a specification to the contrary, the MIME type "application/octet-stream"
+        // when used with parameters, e.g. "application/octet-stream;codecs=theora", is a type that the user agent knows
+        // it cannot render.
+        if (parameters.type == applicationOctetStream()) {
+            if (!parameters.codecs.isEmpty())
+                return nullptr;
+        }
     }
 
     const MediaPlayerFactory* foundEngine = nullptr;
@@ -370,6 +372,7 @@ bool MediaPlayer::load(const URL& url, const ContentType& contentType, MediaSour
     m_url = url;
     m_keySystem = "";
     m_contentMIMETypeWasInferredFromExtension = false;
+
     loadWithNextMediaEngine(0);
     return m_currentMediaEngine;
 }
@@ -427,6 +430,11 @@ void MediaPlayer::loadWithNextMediaEngine(const MediaPlayerFactory* current)
 
     if (!m_contentMIMEType.isEmpty() || MEDIASTREAM || MEDIASOURCE)
         engine = nextBestMediaEngine(current);
+
+#if ENABLE(MEDIA_SOURCE)
+    if (m_mediaSource)
+        engine = nextBestMediaEngine(current);
+#endif
 
     // If no MIME type is specified or the type was inferred from the file extension, just use the next engine.
     if (!engine && (m_contentMIMEType.isEmpty() || m_contentMIMETypeWasInferredFromExtension))
