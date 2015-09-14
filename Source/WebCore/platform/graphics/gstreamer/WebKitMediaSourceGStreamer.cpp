@@ -1311,6 +1311,10 @@ void PlaybackPipeline::reattachTrack(RefPtr<SourceBufferPrivateGStreamer> source
 {
     printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
 
+    // TODO: Maybe remove this method.
+    // Now the caps change is managed by gst_appsrc_push_sample()
+    // in enqueueSample() and flushAndEnqueueNonDisplayingSamples().
+
     WebKitMediaSrc* webKitMediaSrc = m_webKitMediaSrc.get();
 
     GST_OBJECT_LOCK(webKitMediaSrc);
@@ -1324,15 +1328,24 @@ void PlaybackPipeline::reattachTrack(RefPtr<SourceBufferPrivateGStreamer> source
     g_assert(stream != 0);
 
     GstCaps* oldAppsrccaps = gst_app_src_get_caps(GST_APP_SRC(source->src));
-    gst_app_src_set_caps(GST_APP_SRC(source->src), caps);
+    // Now the caps change is managed by gst_appsrc_push_sample()
+    // in enqueueSample() and flushAndEnqueueNonDisplayingSamples().
+    // gst_app_src_set_caps(GST_APP_SRC(source->src), caps);
     GstCaps* appsrccaps = gst_app_src_get_caps(GST_APP_SRC(source->src));
     const gchar* mediaType = gst_structure_get_name(gst_caps_get_structure(appsrccaps, 0));
 
     if (!gst_caps_is_equal(oldAppsrccaps, appsrccaps)) {
         printf("### %s: Caps have changed, but reconstructing the sequence of elements is not supported yet\n", __PRETTY_FUNCTION__); fflush(stdout);
+
+        gchar* stroldcaps = gst_caps_to_string(oldAppsrccaps);
+        gchar* strnewcaps = gst_caps_to_string(appsrccaps);
+        printf("### %s:\n oldcaps: %s\nnewcaps: %s\n", __PRETTY_FUNCTION__, stroldcaps, strnewcaps); fflush(stdout);
+        g_free(stroldcaps);
+        g_free(strnewcaps);
     }
 
     int signal = -1;
+
     GST_OBJECT_LOCK(webKitMediaSrc);
     if (g_str_has_prefix(mediaType, "audio")) {
         g_assert(stream->type == Audio);
@@ -1438,6 +1451,8 @@ void PlaybackPipeline::markEndOfStream(MediaSourcePrivate::EndOfStreamStatus)
 
 void PlaybackPipeline::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples)
 {
+    g_assert(WTF::isMainThread());
+
     if (samples.size() == 0) {
         printf("### %s: No samples, trackId unknown\n", __PRETTY_FUNCTION__); fflush(stdout);
         return;
@@ -1460,6 +1475,7 @@ void PlaybackPipeline::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSa
     GstElement* appsrc = source->src;
     GST_OBJECT_UNLOCK(m_webKitMediaSrc.get());
 
+    /*
     gdouble rate;
 
     {
@@ -1468,6 +1484,7 @@ void PlaybackPipeline::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSa
         gst_query_parse_segment(query, &rate, NULL, NULL, NULL);
         gst_query_unref(query);
     }
+    */
 
     // Actually no need to flush. The seek preparations have done it for us.
 
@@ -1506,10 +1523,19 @@ void PlaybackPipeline::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSa
 
     for (Vector<RefPtr<MediaSample> >::iterator it = samples.begin(); it != samples.end(); ++it) {
         GStreamerMediaSample* sample = static_cast<GStreamerMediaSample*>(it->get());
-        if (sample->buffer()) {
-            GstBuffer* buffer = gst_buffer_ref(sample->buffer());
+        if (sample->sample() && gst_sample_get_buffer(sample->sample())) {
+
+            // Use samples
+            GstSample* gstsample = gst_sample_ref(sample->sample());
+            GST_BUFFER_FLAG_SET(gst_sample_get_buffer(gstsample), GST_BUFFER_FLAG_DECODE_ONLY);
+            gst_app_src_push_sample(GST_APP_SRC(appsrc), gstsample);
+
+            // Use buffers
+            /*
+            GstBuffer* buffer = gst_buffer_ref(gst_sample_get_buffer(sample->sample()));
             GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_DECODE_ONLY);
             gst_app_src_push_buffer(GST_APP_SRC(appsrc), buffer);
+            */
         }
     }
 }
@@ -1520,6 +1546,8 @@ void PlaybackPipeline::enqueueSample(PassRefPtr<MediaSample> prsample)
     AtomicString trackId = rsample->trackID();
 
     printf("### %s: trackId=%s PTS=%f\n", __PRETTY_FUNCTION__, trackId.string().utf8().data(), rsample->presentationTime().toFloat()); fflush(stdout);
+
+    g_assert(WTF::isMainThread());
 
     GST_DEBUG_OBJECT(m_webKitMediaSrc.get(), "Enqueing sample to stream %s at %" GST_TIME_FORMAT, trackId.string().utf8().data(), GST_TIME_ARGS(floatToGstClockTime(rsample->presentationTime().toDouble())));
     GST_OBJECT_LOCK(m_webKitMediaSrc.get());
@@ -1535,10 +1563,19 @@ void PlaybackPipeline::enqueueSample(PassRefPtr<MediaSample> prsample)
     GST_OBJECT_UNLOCK(m_webKitMediaSrc.get());
 
     GStreamerMediaSample* sample = static_cast<GStreamerMediaSample*>(rsample.get());
-    if (sample->buffer()) {
-        GstBuffer* buffer = gst_buffer_ref(sample->buffer());
+    if (sample->sample() && gst_sample_get_buffer(sample->sample())) {
+
+        // Use samples
+        GstSample* gstsample = gst_sample_ref(sample->sample());
+        GST_BUFFER_FLAG_UNSET(gst_sample_get_buffer(gstsample), GST_BUFFER_FLAG_DECODE_ONLY);
+        gst_app_src_push_sample(GST_APP_SRC(appsrc), gstsample);
+
+        // Use buffers
+        /*
+        GstBuffer* buffer = gst_buffer_ref(gst_sample_get_buffer(sample->sample()));
         GST_BUFFER_FLAG_UNSET(buffer, GST_BUFFER_FLAG_DECODE_ONLY);
         gst_app_src_push_buffer(GST_APP_SRC(appsrc), buffer);
+        */
     }
 }
 

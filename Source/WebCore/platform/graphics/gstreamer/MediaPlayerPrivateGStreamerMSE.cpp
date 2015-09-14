@@ -157,6 +157,7 @@ public:
     void updatePresentationSize(GstCaps* demuxersrcpadcaps);
     void demuxerPadAdded(GstPad* demuxersrcpad);
     void demuxerPadRemoved(GstPad*);
+    void appSinkCapsChanged();
     void appSinkNewSample(GstSample* sample);
     void appSinkEOS();
     void didReceiveInitializationSegment();
@@ -867,6 +868,9 @@ bool MediaPlayerPrivateGStreamerMSE::doSeek(gint64 position, float rate, GstSeek
 
     // This will call notifySeekNeedsData() after some time to tell that the pipeline is ready for sample enqueuing.
     webkit_media_src_prepare_seek(WEBKIT_MEDIA_SRC(m_source.get()), time);
+
+    // DEBUG
+    dumpPipeline(m_pipeline.get());
 
     if (!gst_element_seek(m_pipeline.get(), rate, GST_FORMAT_TIME, seekType,
         GST_SEEK_TYPE_SET, startTime, GST_SEEK_TYPE_SET, endTime)) {
@@ -2705,19 +2709,26 @@ private:
 };
 
 // class GStreamerMediaSample : public MediaSample
-GStreamerMediaSample::GStreamerMediaSample(GstBuffer* buffer, const FloatSize& presentationSize, const AtomicString& trackID)
+GStreamerMediaSample::GStreamerMediaSample(GstSample* sample, const FloatSize& presentationSize, const AtomicString& trackID)
     : MediaSample()
     , m_pts(MediaTime::zeroTime())
     , m_dts(MediaTime::zeroTime())
     , m_duration(MediaTime::zeroTime())
     , m_trackID(trackID)
     , m_size(0)
-    , m_buffer(0)
+    , m_sample(0)
     , m_presentationSize(presentationSize)
     , m_flags(MediaSample::IsSync)
 {
+
+    if (!sample)
+        return;
+
+    GstBuffer* buffer = gst_sample_get_buffer(sample);
+
     if (!buffer)
         return;
+
     if (GST_BUFFER_PTS_IS_VALID(buffer))
         m_pts = MediaTime(GST_BUFFER_PTS(buffer), GST_SECOND);
     if (GST_BUFFER_DTS_IS_VALID(buffer))
@@ -2725,7 +2736,7 @@ GStreamerMediaSample::GStreamerMediaSample(GstBuffer* buffer, const FloatSize& p
     if (GST_BUFFER_DURATION_IS_VALID(buffer))
         m_duration = MediaTime(GST_BUFFER_DURATION(buffer), GST_SECOND);
     m_size = gst_buffer_get_size(buffer);
-    m_buffer = gst_buffer_ref(buffer);
+    m_sample = gst_sample_ref(sample);
 
     if (GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT))
         m_flags = MediaSample::None;
@@ -2734,14 +2745,15 @@ GStreamerMediaSample::GStreamerMediaSample(GstBuffer* buffer, const FloatSize& p
         m_flags = (MediaSample::SampleFlags) (m_flags | MediaSample::NonDisplaying);
 }
 
-PassRefPtr<GStreamerMediaSample> GStreamerMediaSample::create(GstBuffer* buffer, const FloatSize& presentationSize, const AtomicString& trackID)
+PassRefPtr<GStreamerMediaSample> GStreamerMediaSample::create(GstSample* sample, const FloatSize& presentationSize, const AtomicString& trackID)
 {
-    return adoptRef(new GStreamerMediaSample(buffer, presentationSize, trackID));
+    return adoptRef(new GStreamerMediaSample(sample, presentationSize, trackID));
 }
 
-PassRefPtr<GStreamerMediaSample> GStreamerMediaSample::createFakeSample(MediaTime pts, MediaTime dts, MediaTime duration, const FloatSize& presentationSize, const AtomicString& trackID)
+PassRefPtr<GStreamerMediaSample> GStreamerMediaSample::createFakeSample(GstCaps* caps, MediaTime pts, MediaTime dts, MediaTime duration, const FloatSize& presentationSize, const AtomicString& trackID)
 {
-    GStreamerMediaSample* s = new GStreamerMediaSample(0, presentationSize, trackID);
+    GstSample* sample = gst_sample_new(0, gst_caps_ref(caps), 0, 0);
+    GStreamerMediaSample* s = new GStreamerMediaSample(sample, presentationSize, trackID);
     s->m_pts = pts;
     s->m_dts = dts;
     s->m_duration = duration;
@@ -2751,8 +2763,8 @@ PassRefPtr<GStreamerMediaSample> GStreamerMediaSample::createFakeSample(MediaTim
 
 GStreamerMediaSample::~GStreamerMediaSample()
 {
-    if (m_buffer)
-        gst_buffer_unref(m_buffer);
+    if (m_sample)
+        gst_sample_unref(m_sample);
 }
 
 
@@ -2830,6 +2842,8 @@ static void appendPipelineDemuxerPadAdded(GstElement*, GstPad*, AppendPipeline*)
 static gboolean appendPipelineDemuxerPadAddedMainThread(DemuxerPadInfo*);
 static void appendPipelineDemuxerPadRemoved(GstElement*, GstPad*, AppendPipeline*);
 static gboolean appendPipelineDemuxerPadRemovedMainThread(DemuxerPadInfo*);
+static void appendPipelineAppSinkCapsChanged(GObject*, GParamSpec*, AppendPipeline*);
+static gboolean appendPipelineAppSinkCapsChangedMainThread(AppendPipeline*);
 static void appendPipelineAppSinkNewSample(GstElement*, AppendPipeline*);
 static gboolean appendPipelineAppSinkNewSampleMainThread(NewSampleInfo*);
 static void appendPipelineAppSinkEOS(GstElement*, AppendPipeline*);
@@ -2867,6 +2881,9 @@ AppendPipeline::AppendPipeline(PassRefPtr<MediaSourceClientGStreamerMSE> mediaSo
     g_signal_connect(m_appsink, "new-sample", G_CALLBACK(appendPipelineAppSinkNewSample), this);
     g_signal_connect(m_appsink, "eos", G_CALLBACK(appendPipelineAppSinkEOS), this);
 
+    GstPad* appsinkpad = gst_element_get_static_pad(m_appsink, "sink");
+    g_signal_connect(appsinkpad, "notify::caps", G_CALLBACK(appendPipelineAppSinkCapsChanged), this);
+
     // Add_many will take ownership of a reference. Request one ref more for ourselves.
     gst_object_ref(m_appsrc);
     gst_object_ref(m_typefind);
@@ -2877,6 +2894,8 @@ AppendPipeline::AppendPipeline(PassRefPtr<MediaSourceClientGStreamerMSE> mediaSo
     gst_element_link_many(m_appsrc, m_typefind, m_qtdemux, NULL);
 
     gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
+
+    gst_object_unref(appsinkpad);
 };
 
 AppendPipeline::~AppendPipeline()
@@ -2903,6 +2922,9 @@ AppendPipeline::~AppendPipeline()
     }
 
     if (m_appsrc) {
+        GstPad* appsinkpad = gst_element_get_static_pad(m_appsink, "sink");
+        g_signal_handlers_disconnect_by_func(appsinkpad, reinterpret_cast<gpointer>(appendPipelineAppSinkCapsChanged), this);
+        gst_object_unref(appsinkpad);
         gst_object_unref(m_appsrc);
         m_appsrc = NULL;
     }
@@ -3179,6 +3201,7 @@ void AppendPipeline::demuxerPadAdded(GstPad* demuxersrcpad)
     printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
     // TODO: Update presentation size, see webKitMediaSrcUpdatePresentationSize().
 
+    /*
     updatePresentationSize(gst_pad_get_current_caps(demuxersrcpad));
 
     RefPtr<WebCore::TrackPrivateBase> oldTrack = m_track;
@@ -3204,12 +3227,67 @@ void AppendPipeline::demuxerPadAdded(GstPad* demuxersrcpad)
 
     m_playerPrivate->trackDetected(this, oldTrack, m_track);
     didReceiveInitializationSegment();
+    */
 }
 
 void AppendPipeline::demuxerPadRemoved(GstPad*)
 {
     printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
     // TODO: Remove this method if it's useless in the end.
+}
+
+void AppendPipeline::appSinkCapsChanged()
+{
+    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+
+    GstPad* appsinkpad = gst_element_get_static_pad(m_appsink, "sink");
+    GstCaps* caps = gst_pad_get_current_caps(GST_PAD(appsinkpad));
+
+    {
+        gchar* strcaps = gst_caps_to_string(caps);
+        printf("!!! %s: %s\n", __PRETTY_FUNCTION__, strcaps); fflush(stdout);
+        g_free(strcaps);
+    }
+
+    if (!caps) {
+        gst_object_unref(appsinkpad);
+        return;
+    }
+
+    updatePresentationSize(gst_caps_ref(caps));
+
+    RefPtr<WebCore::TrackPrivateBase> oldTrack = m_track;
+    GstStructure* s = gst_caps_get_structure(m_demuxersrcpadcaps, 0);
+    const gchar* mediaType = gst_structure_get_name(s);
+    bool isData;
+
+    if (g_str_has_prefix(mediaType, "audio")) {
+        isData = true;
+        m_streamType = Audio;
+        m_track = WebCore::AudioTrackPrivateGStreamer::create(m_playerPrivate->pipeline(), id(), appsinkpad);
+    } else if (g_str_has_prefix(mediaType, "video")) {
+        isData = true;
+        m_streamType = Video;
+        m_track = WebCore::VideoTrackPrivateGStreamer::create(m_playerPrivate->pipeline(), id(), appsinkpad);
+    } else if (g_str_has_prefix(mediaType, "text")) {
+        isData = true;
+        m_streamType = Text;
+        m_track = WebCore::InbandTextTrackPrivateGStreamer::create(id(), appsinkpad);
+    } else {
+        // No useful data, but notify anyway to complete the append operation (webKitMediaSrcLastSampleTimeout is cancelled and won't notify in this case)
+        // TODO: EME uses its own special types.
+        printf("### %s: (no data)\n", __PRETTY_FUNCTION__); fflush(stdout);
+        isData = false;
+        m_mediaSourceClient->didReceiveAllPendingSamples(m_sourceBufferPrivate.get());
+    }
+
+    if (isData) {
+        m_playerPrivate->trackDetected(this, oldTrack, m_track);
+        didReceiveInitializationSegment();
+    }
+
+    gst_caps_unref(caps);
+    gst_object_unref(appsinkpad);
 }
 
 void AppendPipeline::appSinkNewSample(GstSample* sample)
@@ -3221,7 +3299,8 @@ void AppendPipeline::appSinkNewSample(GstSample* sample)
     }
 
     AtomicString trackId(AppendPipeline::trackId());
-    RefPtr<GStreamerMediaSample> mediaSample = WebCore::GStreamerMediaSample::create(gst_sample_get_buffer(sample), m_presentationSize, trackId);
+
+    RefPtr<GStreamerMediaSample> mediaSample = WebCore::GStreamerMediaSample::create(sample, m_presentationSize, trackId);
 
     // If we're beyond the duration, ignore this sample and the remaining ones.
     MediaTime duration = m_mediaSourceClient->duration();
@@ -3237,7 +3316,7 @@ void AppendPipeline::appSinkNewSample(GstSample* sample)
     if (mediaSample->presentationTime() >= timestampOffset &&
         mediaSample->presentationTime() <= timestampOffset + MediaTime::createWithDouble(0.1)) {
         RefPtr<WebCore::GStreamerMediaSample> fakeSample = WebCore::GStreamerMediaSample::createFakeSample(
-                timestampOffset, mediaSample->decodeTime(), mediaSample->presentationTime() - timestampOffset, mediaSample->presentationSize(),
+                gst_sample_get_caps(sample), timestampOffset, mediaSample->decodeTime(), mediaSample->presentationTime() - timestampOffset, mediaSample->presentationSize(),
                 trackId);
         m_mediaSourceClient->didReceiveSample(m_sourceBufferPrivate.get(), fakeSample);
     }
@@ -3331,6 +3410,7 @@ void AppendPipeline::abort()
         setAppendStage(Aborting);
     // Else, the automatic stage transitions will take care when the ongoing append finishes.
 }
+
 static void appendPipelineDemuxerPadAdded(GstElement*, GstPad* demuxersrcpad, AppendPipeline* ap)
 {
     // Must be done in the streaming thread.
@@ -3370,6 +3450,23 @@ static gboolean appendPipelineDemuxerPadRemovedMainThread(DemuxerPadInfo* info)
     if (info->ap()->qtdemux())
         info->ap()->demuxerPadRemoved(info->pad());
     delete info;
+    return G_SOURCE_REMOVE;
+}
+
+static void appendPipelineAppSinkCapsChanged(GObject*, GParamSpec*, AppendPipeline* ap)
+{
+    if (WTF::isMainThread())
+        appendPipelineAppSinkCapsChangedMainThread(ap);
+    else {
+        ap->ref();
+        g_timeout_add(0, GSourceFunc(appendPipelineAppSinkCapsChangedMainThread), ap);
+    }
+}
+
+static gboolean appendPipelineAppSinkCapsChangedMainThread(AppendPipeline* ap)
+{
+    ap->appSinkCapsChanged();
+    ap->deref();
     return G_SOURCE_REMOVE;
 }
 
