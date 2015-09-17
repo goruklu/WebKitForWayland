@@ -890,6 +890,10 @@ void MediaPlayerPrivateGStreamerMSE::updatePlaybackRate()
 
     printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
 
+    // Not implemented
+    return;
+
+    /*
     float currentPosition = static_cast<float>(playbackPosition() * GST_SECOND);
     bool mute = false;
 
@@ -926,6 +930,7 @@ void MediaPlayerPrivateGStreamerMSE::updatePlaybackRate()
 
     m_changingRate = false;
     m_player->rateChanged();
+    */
 }
 
 bool MediaPlayerPrivateGStreamerMSE::paused() const
@@ -1114,6 +1119,9 @@ void MediaPlayerPrivateGStreamerMSE::seekCompleted()
 
 void MediaPlayerPrivateGStreamerMSE::setRate(float rate)
 {
+    notImplemented();
+    return;
+
     // Higher rate causes crash.
     rate = clampTo(rate, -20.0, 20.0);
 
