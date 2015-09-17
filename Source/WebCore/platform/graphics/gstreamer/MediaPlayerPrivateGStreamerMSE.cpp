@@ -425,6 +425,15 @@ MediaPlayerPrivateGStreamerMSE::~MediaPlayerPrivateGStreamerMSE()
         m_missingPluginsCallback = nullptr;
     }
 
+    // Ensure that neither this class nor the base class hold references to any sample
+    // as in the change to NULL the decoder needs to be able to free the buffers
+    clearSamples();
+
+    if (m_videoSink) {
+        GRefPtr<GstPad> videoSinkPad = adoptGRef(gst_element_get_static_pad(m_videoSink.get(), "sink"));
+        g_signal_handlers_disconnect_by_func(videoSinkPad.get(), reinterpret_cast<gpointer>(mediaPlayerPrivateVideoSinkCapsChangedCallback), this);
+    }
+
     if (m_source && WEBKIT_IS_MEDIA_SRC(m_source.get())) {
         webkit_media_src_set_mediaplayerprivate(WEBKIT_MEDIA_SRC(m_source.get()), 0);
         g_signal_handlers_disconnect_by_func(m_source.get(), reinterpret_cast<gpointer>(mediaPlayerPrivateVideoChangedCallback), this);
@@ -446,11 +455,6 @@ MediaPlayerPrivateGStreamerMSE::~MediaPlayerPrivateGStreamerMSE()
         g_signal_handlers_disconnect_by_func(m_pipeline.get(), reinterpret_cast<gpointer>(mediaPlayerPrivateTextChangedCallback), this);
 
         gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
-    }
-
-    if (m_videoSink) {
-        GRefPtr<GstPad> videoSinkPad = adoptGRef(gst_element_get_static_pad(m_videoSink.get(), "sink"));
-        g_signal_handlers_disconnect_by_func(videoSinkPad.get(), reinterpret_cast<gpointer>(mediaPlayerPrivateVideoSinkCapsChangedCallback), this);
     }
 
     // Cancel pending mediaPlayerPrivateNotifyDurationChanged() delayed calls
@@ -1430,14 +1434,21 @@ gboolean MediaPlayerPrivateGStreamerMSE::handleMessage(GstMessage* message)
             }
         }
 #if USE(GSTREAMER_MPEGTS)
+        else if (GstMpegtsSection* section = gst_message_parse_mpegts_section(message)) {
+            processMpegTsSection(section);
+            gst_mpegts_section_unref(section);
+        }
+
+#endif
         else {
-            GstMpegtsSection* section = gst_message_parse_mpegts_section(message);
-            if (section) {
-                processMpegTsSection(section);
-                gst_mpegts_section_unref(section);
+            const GstStructure* structure = gst_message_get_structure(message);
+            if (gst_structure_has_name(structure, "adaptive-streaming-statistics") && gst_structure_has_field(structure, "fragment-download-time")) {
+                GUniqueOutPtr<gchar> uri;
+                GstClockTime time;
+                gst_structure_get(structure, "uri", G_TYPE_STRING, &uri.outPtr(), "fragment-download-time", GST_TYPE_CLOCK_TIME, &time, nullptr);
+                INFO_MEDIA_MESSAGE("Fragment %s download time %" GST_TIME_FORMAT, uri.get(), GST_TIME_ARGS(time));
             }
         }
-#endif
         break;
     case GST_MESSAGE_TOC:
         processTableOfContents(message);
