@@ -3464,7 +3464,7 @@ static gboolean appendPipelineDemuxerPadRemovedMainThread(DemuxerPadInfo* info)
 static void appendPipelineAppSinkCapsChanged(GObject*, GParamSpec*, AppendPipeline* ap)
 {
     if (WTF::isMainThread())
-        appendPipelineAppSinkCapsChangedMainThread(ap);
+        ap->appSinkCapsChanged();
     else {
         ap->ref();
         g_timeout_add(0, GSourceFunc(appendPipelineAppSinkCapsChangedMainThread), ap);
