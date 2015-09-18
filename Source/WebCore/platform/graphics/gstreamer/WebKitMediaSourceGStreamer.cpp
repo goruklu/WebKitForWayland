@@ -1545,7 +1545,7 @@ void PlaybackPipeline::enqueueSample(PassRefPtr<MediaSample> prsample)
     RefPtr<MediaSample> rsample = prsample;
     AtomicString trackId = rsample->trackID();
 
-    printf("### %s: trackId=%s PTS=%f\n", __PRETTY_FUNCTION__, trackId.string().utf8().data(), rsample->presentationTime().toFloat()); fflush(stdout);
+    printf("### %s: trackId=%s PTS=%f presentationSize=%.0fx%.0f\n", __PRETTY_FUNCTION__, trackId.string().utf8().data(), rsample->presentationTime().toFloat(), rsample->presentationSize().width(), rsample->presentationSize().height()); fflush(stdout);
 
     g_assert(WTF::isMainThread());
 

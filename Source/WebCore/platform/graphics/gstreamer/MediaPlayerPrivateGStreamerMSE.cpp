@@ -3310,6 +3310,8 @@ void AppendPipeline::appSinkNewSample(GstSample* sample)
 
     RefPtr<GStreamerMediaSample> mediaSample = WebCore::GStreamerMediaSample::create(sample, m_presentationSize, trackId);
 
+    printf("### %s: trackId=%s PTS=%f presentationSize=%.0fx%.0f\n", __PRETTY_FUNCTION__, trackId.string().utf8().data(), mediaSample->presentationTime().toFloat(), mediaSample->presentationSize().width(), mediaSample->presentationSize().height()); fflush(stdout);
+
     // If we're beyond the duration, ignore this sample and the remaining ones.
     MediaTime duration = m_mediaSourceClient->duration();
     if (duration.isValid() && !duration.indefiniteTime() && mediaSample->presentationTime() > duration) {
