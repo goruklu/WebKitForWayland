@@ -36,6 +36,7 @@
 #if ENABLE(MEDIA_SOURCE) && USE(GSTREAMER)
 
 #include "ContentType.h"
+#include "GStreamerUtilities.h"
 #include "MediaPlayerPrivateGStreamerMSE.h"
 #include "MediaSample.h"
 #include "MediaSourceGStreamer.h"
@@ -86,7 +87,7 @@ void SourceBufferPrivateGStreamer::appendComplete(SourceBufferPrivateClient::App
         case SourceBufferPrivateClient::ReadStreamFailed: result = "Read stream failed"; break;
         default: result = "Unknown"; break;
         }
-        printf("### %s: %s\n", __PRETTY_FUNCTION__, result); fflush(stdout);
+        LOG_MEDIA_MESSAGE("%s", result);
     }
 
     if (m_client)

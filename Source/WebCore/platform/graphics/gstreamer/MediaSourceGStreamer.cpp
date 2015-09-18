@@ -51,8 +51,6 @@ namespace WebCore {
 // TODO: Remove.
 void MediaSourceGStreamer::open(MediaSourcePrivateClient* mediaSource, WebKitMediaSrc* src, MediaPlayerPrivateGStreamerBase* playerPrivate)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
-
     notImplemented();
 
     /*
@@ -65,8 +63,6 @@ void MediaSourceGStreamer::open(MediaSourcePrivateClient* mediaSource, WebKitMed
 
 void MediaSourceGStreamer::open(MediaSourcePrivateClient* mediaSource, RefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
-
     ASSERT(mediaSource);
     RefPtr<MediaSourceGStreamer> mediaSourcePrivate = adoptRef(new MediaSourceGStreamer(mediaSource, playerPrivate));
     mediaSourcePrivate->m_playerPrivate = playerPrivate.get();

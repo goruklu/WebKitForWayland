@@ -2693,8 +2693,6 @@ MediaTime HTMLMediaElement::currentMediaTime() const
         return MediaTime::zeroTime();
 
     if (m_seeking) {
-        MediaTime ptime = m_player->currentTime(); // !!! DEBUG
-        printf("### %s (seeking) m_lastSeekTime=%f m_player->currentTime()=%f\n", __PRETTY_FUNCTION__, m_lastSeekTime.toFloat(), ptime.toFloat()); fflush(stdout);
         LOG(Media, "HTMLMediaElement::currentTime(%p) - seeking, returning %s", this, toString(m_lastSeekTime).utf8().data());
         return m_lastSeekTime;
     }
@@ -2705,7 +2703,6 @@ MediaTime HTMLMediaElement::currentMediaTime() const
         if (delta > minCachedDeltaForWarning)
             LOG(Media, "HTMLMediaElement::currentTime(%p) - WARNING, cached time is %s seconds off of media time when paused", this, toString(delta).utf8().data());
 #endif
-        printf("### %s (cached 1) m_cachedTime=%f\n", __PRETTY_FUNCTION__, m_cachedTime.toFloat()); fflush(stdout);
         return m_cachedTime;
     }
 
@@ -2725,7 +2722,6 @@ MediaTime HTMLMediaElement::currentMediaTime() const
             if (delta > minCachedDeltaForWarning)
                 LOG(Media, "HTMLMediaElement::currentTime(%p) - WARNING, cached time is %f seconds off of media time when playing", this, delta);
 #endif
-            printf("### %s (adjusted cached) adjustedCacheTime=%f\n", __PRETTY_FUNCTION__, adjustedCacheTime.toFloat()); fflush(stdout);
 
             return adjustedCacheTime;
         }
@@ -2743,8 +2739,6 @@ MediaTime HTMLMediaElement::currentMediaTime() const
 
     if (m_cachedTime.isInvalid())
         return MediaTime::zeroTime();
-    
-    printf("### %s (cached 2) m_cachedTime=%f\n", __PRETTY_FUNCTION__, m_cachedTime.toFloat()); fflush(stdout);
 
     return m_cachedTime;
 }
@@ -3356,7 +3350,6 @@ void HTMLMediaElement::playbackProgressTimerFired()
 
 void HTMLMediaElement::scheduleTimeupdateEvent(bool periodicEvent)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
     double now = monotonicallyIncreasingTime();
     double timedelta = now - m_clockTimeAtLastUpdateEvent;
 
@@ -4216,7 +4209,6 @@ void HTMLMediaElement::sourceWasRemoved(HTMLSourceElement* source)
 
 void HTMLMediaElement::mediaPlayerTimeChanged(MediaPlayer*)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
     LOG(Media, "HTMLMediaElement::mediaPlayerTimeChanged(%p)", this);
 
 #if ENABLE(VIDEO_TRACK)

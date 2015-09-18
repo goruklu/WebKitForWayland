@@ -46,6 +46,9 @@
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/MainThread.h>
 
+// To make LOG_MEDIA_MESSAGE() work outside the WebCore namespace.
+using WebCore::LogMedia;
+
 typedef struct _Stream Stream;
 typedef struct _Source Source;
 
@@ -593,7 +596,7 @@ static void webKitMediaSrcParserNotifyCaps(GObject* object, GParamSpec*, Stream*
         return;
     }
 
-    printf("### %s: Caps changed\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("Caps changed");
 
     webKitMediaSrcUpdatePresentationSize(caps, stream);
     gst_caps_unref(caps);
@@ -701,7 +704,7 @@ static void webKitMediaSrcDemuxerPadRemoved(GstElement*, GstPad* demuxersrcpad, 
     }
     GST_OBJECT_UNLOCK(source->parent);
 
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     // FIXME: turn this to an early return.
     if (stream) {
@@ -792,7 +795,7 @@ static void webKitMediaSrcCheckAllTracksConfigured(WebKitMediaSrc* webKitMediaSr
     GST_OBJECT_UNLOCK(webKitMediaSrc);
 
     if (allTracksConfigured) {
-        printf("### %s: All tracks attached. Completing async state change operation.\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("All tracks attached. Completing async state change operation.");
         gst_element_no_more_pads(GST_ELEMENT(webKitMediaSrc));
         webKitMediaSrcDoAsyncDone(webKitMediaSrc);
     }
@@ -893,7 +896,7 @@ static gboolean seekNeedsDataMainThread (gpointer user_data)
     WebKitMediaSrc* webKitMediaSrc = static_cast<WebKitMediaSrc*>(user_data);
     g_assert(WEBKIT_IS_MEDIA_SRC(webKitMediaSrc));
 
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     g_assert(WTF::isMainThread());
 
@@ -920,7 +923,7 @@ static void app_src_need_data (GstAppSrc *src, guint length, gpointer user_data)
     if (webKitMediaSrc->priv->appSrcSeekDataCount > 0) {
         ++webKitMediaSrc->priv->appSrcNeedDataCount;
         if (webKitMediaSrc->priv->appSrcSeekDataCount == numAppSrcs && webKitMediaSrc->priv->appSrcNeedDataCount == numAppSrcs) {
-            printf("### %s: All need_datas completed\n", __PRETTY_FUNCTION__); fflush(stdout);
+            LOG_MEDIA_MESSAGE("All need_datas completed");
             allAppSrcsNeedDataAfterSeek = true;
             appSrcSeekDataNextAction = webKitMediaSrc->priv->appSrcSeekDataNextAction;
             webKitMediaSrc->priv->appSrcSeekDataCount = 0;
@@ -931,7 +934,7 @@ static void app_src_need_data (GstAppSrc *src, guint length, gpointer user_data)
     GST_OBJECT_UNLOCK(webKitMediaSrc);
 
     if (allAppSrcsNeedDataAfterSeek) {
-        printf("### %s: All expected app_src_seek_data() and app_src_need_data() calls performed. Running next action (%d)\n", __PRETTY_FUNCTION__, static_cast<int>(appSrcSeekDataNextAction)); fflush(stdout);
+        LOG_MEDIA_MESSAGE("All expected app_src_seek_data() and app_src_need_data() calls performed. Running next action (%d)", static_cast<int>(appSrcSeekDataNextAction));
 
         switch (appSrcSeekDataNextAction) {
         case MediaSourceSeekToTime:
@@ -987,7 +990,7 @@ PlaybackPipeline::~PlaybackPipeline()
 
 void PlaybackPipeline::setWebKitMediaSrc(WebKitMediaSrc* webKitMediaSrc)
 {
-    printf("### %s: webKitMediaSrc=%p\n", __PRETTY_FUNCTION__, webKitMediaSrc); fflush(stdout);
+    LOG_MEDIA_MESSAGE("webKitMediaSrc=%p", webKitMediaSrc);
     m_webKitMediaSrc = adoptGRef(static_cast<WebKitMediaSrc*>(gst_object_ref(webKitMediaSrc)));
     m_webKitMediaSrc->priv->mediaSourceClient = this;
 }
@@ -1074,7 +1077,7 @@ void PlaybackPipeline::removeSourceBuffer(RefPtr<SourceBufferPrivateGStreamer> s
 
 void PlaybackPipeline::attachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, RefPtr<TrackPrivateBase> trackPrivate, GstCaps* caps)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     WebKitMediaSrc* webKitMediaSrc = m_webKitMediaSrc.get();
     WebKitMediaSrcPrivate* priv = m_webKitMediaSrc->priv;
@@ -1243,7 +1246,7 @@ void PlaybackPipeline::attachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBu
 
     GST_OBJECT_LOCK(webKitMediaSrc);
     if (source->stream) {
-        printf("### %s: source->stream already has a value, use reattachTrack() instead\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("source->stream already has a value, use reattachTrack() instead");
         g_assert_null(source->stream);
     }
     source->stream = stream;
@@ -1309,7 +1312,7 @@ void PlaybackPipeline::attachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBu
 
 void PlaybackPipeline::reattachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, RefPtr<TrackPrivateBase> trackPrivate, GstCaps* caps)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     // TODO: Maybe remove this method.
     // Now the caps change is managed by gst_appsrc_push_sample()
@@ -1335,11 +1338,11 @@ void PlaybackPipeline::reattachTrack(RefPtr<SourceBufferPrivateGStreamer> source
     const gchar* mediaType = gst_structure_get_name(gst_caps_get_structure(appsrccaps, 0));
 
     if (!gst_caps_is_equal(oldAppsrccaps, appsrccaps)) {
-        printf("### %s: Caps have changed, but reconstructing the sequence of elements is not supported yet\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("Caps have changed, but reconstructing the sequence of elements is not supported yet");
 
         gchar* stroldcaps = gst_caps_to_string(oldAppsrccaps);
         gchar* strnewcaps = gst_caps_to_string(appsrccaps);
-        printf("### %s:\n oldcaps: %s\nnewcaps: %s\n", __PRETTY_FUNCTION__, stroldcaps, strnewcaps); fflush(stdout);
+        LOG_MEDIA_MESSAGE("oldcaps: %s\nnewcaps: %s", stroldcaps, strnewcaps);
         g_free(stroldcaps);
         g_free(strnewcaps);
     }
@@ -1401,16 +1404,16 @@ static void dumpDataToDisk(const unsigned char* data, unsigned length, SourceBuf
     String fileName = String::format("/tmp/append-%d-%03d.mp4", i, counts[i]);
 
     const char* cFileName = fileName.utf8().data();
-    printf("### %s: fileName=%s\n", __PRETTY_FUNCTION__, cFileName); fflush(stdout);
+    LOG_MEDIA_MESSAGE("fileName=%s", cFileName);
 
     FILE* f = fopen(cFileName, "w");
     if (!f) {
-        printf("### %s: ERROR creating dump file\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("ERROR creating dump file");
         return;
     }
 
     if (!fwrite(data, sizeof(unsigned char), length, f)) {
-        printf("### %s: ERROR writing to dump file\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("ERROR writing to dump file");
     }
 
     fclose(f);
@@ -1454,12 +1457,12 @@ void PlaybackPipeline::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSa
     g_assert(WTF::isMainThread());
 
     if (samples.size() == 0) {
-        printf("### %s: No samples, trackId unknown\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("No samples, trackId unknown");
         return;
     }
 
     AtomicString trackId = samples[0]->trackID();
-    printf("### %s: trackId=%s PTS[0]=%f ... PTS[n]=%f\n", __PRETTY_FUNCTION__, trackId.string().utf8().data(), samples[0]->presentationTime().toFloat(), samples[samples.size()-1]->presentationTime().toFloat()); fflush(stdout);
+    LOG_MEDIA_MESSAGE("trackId=%s PTS[0]=%f ... PTS[n]=%f", trackId.string().utf8().data(), samples[0]->presentationTime().toFloat(), samples[samples.size()-1]->presentationTime().toFloat());
 
     GST_DEBUG_OBJECT(m_webKitMediaSrc.get(), "Flushing and re-enqueing %d samples for stream %s", samples.size(), trackId.string().utf8().data());
 
@@ -1545,7 +1548,7 @@ void PlaybackPipeline::enqueueSample(PassRefPtr<MediaSample> prsample)
     RefPtr<MediaSample> rsample = prsample;
     AtomicString trackId = rsample->trackID();
 
-    printf("### %s: trackId=%s PTS=%f presentationSize=%.0fx%.0f\n", __PRETTY_FUNCTION__, trackId.string().utf8().data(), rsample->presentationTime().toFloat(), rsample->presentationSize().width(), rsample->presentationSize().height()); fflush(stdout);
+    LOG_MEDIA_MESSAGE("trackId=%s PTS=%f presentationSize=%.0fx%.0f", trackId.string().utf8().data(), rsample->presentationTime().toFloat(), rsample->presentationSize().width(), rsample->presentationSize().height());
 
     g_assert(WTF::isMainThread());
 
@@ -1554,7 +1557,7 @@ void PlaybackPipeline::enqueueSample(PassRefPtr<MediaSample> prsample)
     Stream* stream = getStreamByTrackId(m_webKitMediaSrc.get(), trackId);
 
     if (!stream) {
-        printf("### %s: No stream!\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("No stream!");
         GST_OBJECT_UNLOCK(m_webKitMediaSrc.get());
         return;
     }

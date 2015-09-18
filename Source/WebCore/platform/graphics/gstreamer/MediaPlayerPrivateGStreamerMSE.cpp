@@ -388,12 +388,12 @@ MediaPlayerPrivateGStreamerMSE::MediaPlayerPrivateGStreamerMSE(MediaPlayer* play
 #if ENABLE(ENCRYPTED_MEDIA) && USE(DXDRM)
     m_dxdrmSession = 0;
 #endif
-    printf("### %s: %p\n", __PRETTY_FUNCTION__, this); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%p", this);
 }
 
 MediaPlayerPrivateGStreamerMSE::~MediaPlayerPrivateGStreamerMSE()
 {
-    printf("### %s: %p\n", __PRETTY_FUNCTION__, this); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%p", this);
 
 #if ENABLE(ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA_V2)
     // Potentially unblock GStreamer thread for DRM license acquisition.
@@ -513,7 +513,7 @@ void MediaPlayerPrivateGStreamerMSE::load(const String& urlString)
     m_networkState = MediaPlayer::Loading;
     m_player->networkStateChanged();
     m_readyState = MediaPlayer::HaveNothing;
-    printf("### %s: m_readyState=%s\n", __PRETTY_FUNCTION__, dumpReadyState(m_readyState)); fflush(stdout);
+    LOG_MEDIA_MESSAGE("m_readyState=%s", dumpReadyState(m_readyState));
 
     m_player->readyStateChanged();
     m_volumeAndMuteInitialized = false;
@@ -710,17 +710,17 @@ float MediaPlayerPrivateGStreamerMSE::duration() const
 float MediaPlayerPrivateGStreamerMSE::currentTime() const
 {
     if (!m_pipeline) {
-        printf("### %s: (NO PIPELINE) %f\n", __PRETTY_FUNCTION__, 0.0f); fflush(stdout);
+        LOG_MEDIA_MESSAGE("(NO PIPELINE) %f", 0.0f);
         return 0.0f;
     }
 
     if (m_errorOccured) {
-        printf("### %s: (ERROR) %f\n", __PRETTY_FUNCTION__, 0.0f); fflush(stdout);
+        LOG_MEDIA_MESSAGE("(ERROR) %f", 0.0f);
         return 0.0f;
     }
 
     // if (m_seeking) {
-    //     printf("### %s: (SEEKING) %f\n", __PRETTY_FUNCTION__, m_seekTime); fflush(stdout);
+    //     LOG_MEDIA_MESSAGE("(SEEKING) %f", m_seekTime);
     //     return m_seekTime;
     // }
 
@@ -730,12 +730,12 @@ float MediaPlayerPrivateGStreamerMSE::currentTime() const
     // negative playback rate. There's no upstream accepted patch for
     // this bug yet, hence this temporary workaround.
     if (m_isEndReached && m_playbackRate < 0) {
-        printf("### %s: (END OR NEGATIVE) %f\n", __PRETTY_FUNCTION__, 0.0f); fflush(stdout);
+        LOG_MEDIA_MESSAGE("(END OR NEGATIVE) %f", 0.0f);
         return 0.0f;
     }
 
     float playpos = playbackPosition();
-    printf("### %s: (PLAYBACK POSITION) %f\n", __PRETTY_FUNCTION__, playpos); fflush(stdout);
+    LOG_MEDIA_MESSAGE("(PLAYBACK POSITION) %f", playpos);
     return playpos;
 }
 
@@ -782,8 +782,7 @@ void MediaPlayerPrivateGStreamerMSE::seek(float time)
         else if (state < GST_STATE_PAUSED) reason = "State less than PAUSED";
         else if (m_isEndReached) reason = "End reached";
 
-        printf("### %s: Delaying the seek: %s\n", __PRETTY_FUNCTION__, reason.data()); fflush(stdout);
-        LOG_MEDIA_MESSAGE("[Seek] delaying because: %s\n", reason.data());
+        LOG_MEDIA_MESSAGE("Delaying the seek: %s", reason.data());
         m_seekIsPending = true;
         if (m_isEndReached) {
             LOG_MEDIA_MESSAGE("[Seek] reset pipeline");
@@ -792,11 +791,9 @@ void MediaPlayerPrivateGStreamerMSE::seek(float time)
                 loadingFailed(MediaPlayer::Empty);
         }
     } else {
-        printf("### %s: We can seek now\n", __PRETTY_FUNCTION__); fflush(stdout);
-        LOG_MEDIA_MESSAGE("[Seek] now possible");
+        LOG_MEDIA_MESSAGE("We can seek now");
         if (!doSeek(clockTime, m_player->rate(), static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE))) {
-            LOG_MEDIA_MESSAGE("[Seek] seeking to %f failed", time);
-            printf("### %s: Seeking to %f failed\n", __PRETTY_FUNCTION__, time); fflush(stdout);
+            LOG_MEDIA_MESSAGE("Seeking to %f failed", time);
             return;
         }
     }
@@ -804,14 +801,14 @@ void MediaPlayerPrivateGStreamerMSE::seek(float time)
     m_seeking = true;
     m_seekTime = time;
     m_isEndReached = false;
-    printf("### %s m_seeking=%s, m_seekTime=%f\n", __PRETTY_FUNCTION__, m_seeking?"true":"false", m_seekTime); fflush(stdout);
+    LOG_MEDIA_MESSAGE("m_seeking=%s, m_seekTime=%f", m_seeking?"true":"false", m_seekTime);
 }
 
 static gboolean dumpPipeline(gpointer data)
 {
     GstElement* pipeline = reinterpret_cast<GstElement*>(data);
 
-    g_printerr("Dumping pipeline\n");
+    g_printerr("Dumping pipeline");
     CString dotFileName = "pipeline-dump";
     GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.data());
 
@@ -820,7 +817,7 @@ static gboolean dumpPipeline(gpointer data)
 
 void MediaPlayerPrivateGStreamerMSE::notifySeekNeedsData(const MediaTime& seekTime)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     // Reenqueue samples needed to resume playback in the new position
     m_mediaSource->seekToTime(seekTime);
@@ -831,7 +828,7 @@ void MediaPlayerPrivateGStreamerMSE::notifySeekNeedsData(const MediaTime& seekTi
 
 bool MediaPlayerPrivateGStreamerMSE::doSeek(gint64 position, float rate, GstSeekFlags seekType)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     gint64 startTime, endTime;
 
@@ -863,7 +860,7 @@ bool MediaPlayerPrivateGStreamerMSE::doSeek(gint64 position, float rate, GstSeek
         if (gst_element_query(m_pipeline.get(), query))
             gst_query_parse_position(query, 0, &pos);
         currentTime = static_cast<double>(pos) / GST_SECOND;
-        printf("### %s: seekTime=%f, currentTime=%f\n", __PRETTY_FUNCTION__, time.toFloat(), currentTime); fflush(stdout);
+        LOG_MEDIA_MESSAGE("seekTime=%f, currentTime=%f", time.toFloat(), currentTime);
     }
 
     // This will call notifySeekNeedsData() after some time to tell that the pipeline is ready for sample enqueuing.
@@ -874,12 +871,12 @@ bool MediaPlayerPrivateGStreamerMSE::doSeek(gint64 position, float rate, GstSeek
 
     if (!gst_element_seek(m_pipeline.get(), rate, GST_FORMAT_TIME, seekType,
         GST_SEEK_TYPE_SET, startTime, GST_SEEK_TYPE_SET, endTime)) {
-        printf("### %s: Returning false\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("Returning false");
         return false;
     }
 
     // The samples will be enqueued in notifySeekNeedsData()
-    printf("### %s: Returning true\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("Returning true");
     return true;
 }
 
@@ -888,7 +885,7 @@ void MediaPlayerPrivateGStreamerMSE::updatePlaybackRate()
     if (!m_changingRate)
         return;
 
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     // Not implemented
     return;
@@ -1075,17 +1072,17 @@ void MediaPlayerPrivateGStreamerMSE::setReadyState(MediaPlayer::ReadyState state
         LOG_MEDIA_MESSAGE("Ready State Changed manually from %u to %u", m_readyState, state);
         MediaPlayer::ReadyState oldReadyState = m_readyState;
         m_readyState = state;
-        printf("### %s: m_readyState: %s -> %s\n", __PRETTY_FUNCTION__, dumpReadyState(oldReadyState), dumpReadyState(m_readyState)); fflush(stdout);
+        LOG_MEDIA_MESSAGE("m_readyState: %s -> %s", dumpReadyState(oldReadyState), dumpReadyState(m_readyState));
 
         GstState state;
         GstStateChangeReturn getStateResult = gst_element_get_state(m_pipeline.get(), &state, NULL, 250 * GST_NSECOND);
         bool isPlaying = (getStateResult == GST_STATE_CHANGE_SUCCESS && state == GST_STATE_PLAYING);
 
         if (m_readyState == MediaPlayer::HaveMetadata && oldReadyState > MediaPlayer::HaveMetadata && isPlaying) {
-            printf("### %s: Changing pipeline to PAUSED...\n", __PRETTY_FUNCTION__); fflush(stdout);
+            LOG_MEDIA_MESSAGE("Changing pipeline to PAUSED...");
             // Not using changePipelineState() because we don't want the state to drop to GST_STATE_NULL ever.
             bool ok = gst_element_set_state(m_pipeline.get(), GST_STATE_PAUSED) == GST_STATE_CHANGE_SUCCESS;
-            printf("### %s: Changing pipeline to PAUSED: %s\n", __PRETTY_FUNCTION__, (ok)?"OK":"ERROR"); fflush(stdout);
+            LOG_MEDIA_MESSAGE("Changing pipeline to PAUSED: %s", (ok)?"OK":"ERROR");
         }
         m_player->readyStateChanged();
     }
@@ -1102,7 +1099,7 @@ void MediaPlayerPrivateGStreamerMSE::waitForSeekCompleted()
 
 void MediaPlayerPrivateGStreamerMSE::seekCompleted()
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     if (m_seekCompleted)
         return;
@@ -1317,7 +1314,6 @@ gboolean MediaPlayerPrivateGStreamerMSE::handleMessage(GstMessage* message)
     bool messageSourceIsPlaybin = GST_MESSAGE_SRC(message) == reinterpret_cast<GstObject*>(m_pipeline.get());
 
     LOG_MEDIA_MESSAGE("Message %s received from element %s", GST_MESSAGE_TYPE_NAME(message), GST_MESSAGE_SRC_NAME(message));
-    printf("### %s: element: %s, message: %s\n", __PRETTY_FUNCTION__, GST_MESSAGE_SRC_NAME(message), GST_MESSAGE_TYPE_NAME(message)); fflush(stdout);
 
     switch (GST_MESSAGE_TYPE(message)) {
     case GST_MESSAGE_ERROR:
@@ -1327,8 +1323,6 @@ gboolean MediaPlayerPrivateGStreamerMSE::handleMessage(GstMessage* message)
             break;
         gst_message_parse_error(message, &err.outPtr(), &debug.outPtr());
         ERROR_MEDIA_MESSAGE("Error %d: %s (url=%s)", err->code, err->message, m_url.string().utf8().data());
-
-        printf("### %s: Error %d: %s (url=%s)", __PRETTY_FUNCTION__, err->code, err->message, m_url.string().utf8().data()); fflush(stdout);
 
         GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS(GST_BIN(m_pipeline.get()), GST_DEBUG_GRAPH_SHOW_ALL, "webkit-video.error");
 
@@ -1370,10 +1364,10 @@ gboolean MediaPlayerPrivateGStreamerMSE::handleMessage(GstMessage* message)
         {
             GstState newState;
             gst_message_parse_state_changed(message, &currentState, &newState, 0);
-            printf("### %s: State changed %s --> %s\n", __PRETTY_FUNCTION__, gst_element_state_get_name(currentState), gst_element_state_get_name(newState)); fflush(stdout);
+            LOG_MEDIA_MESSAGE("State changed %s --> %s", gst_element_state_get_name(currentState), gst_element_state_get_name(newState));
         }
         if (!messageSourceIsPlaybin || m_delayingLoad) {
-            printf("### %s: messageSourceIsPlaybin=%s, m_delayingLoad=%s\n", __PRETTY_FUNCTION__, messageSourceIsPlaybin?"true":"false", m_delayingLoad?"true":"false"); fflush(stdout);
+            LOG_MEDIA_MESSAGE("messageSourceIsPlaybin=%s, m_delayingLoad=%s", messageSourceIsPlaybin?"true":"false", m_delayingLoad?"true":"false");
             break;
         }
         updateStates();
@@ -1384,7 +1378,7 @@ gboolean MediaPlayerPrivateGStreamerMSE::handleMessage(GstMessage* message)
         CString dotFileName = String::format("webkit-video.%s_%s", gst_element_state_get_name(currentState), gst_element_state_get_name(newState)).utf8();
         GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS(GST_BIN(m_pipeline.get()), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.data());
 
-        printf("### %s: Playbin changed %s --> %s\n", __PRETTY_FUNCTION__, gst_element_state_get_name(currentState), gst_element_state_get_name(newState)); fflush(stdout);
+        LOG_MEDIA_MESSAGE("Playbin changed %s --> %s", gst_element_state_get_name(currentState), gst_element_state_get_name(newState));
 
         break;
     }
@@ -1763,7 +1757,7 @@ void MediaPlayerPrivateGStreamerMSE::cancelLoad()
 
 void MediaPlayerPrivateGStreamerMSE::asyncStateChangeDone()
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     if (!m_pipeline || m_errorOccured)
         return;
@@ -1774,7 +1768,7 @@ void MediaPlayerPrivateGStreamerMSE::asyncStateChangeDone()
         else {
             LOG_MEDIA_MESSAGE("[Seek] seeked to %f", m_seekTime);
             m_seeking = false;
-            printf("### %s m_seeking=%s\n", __PRETTY_FUNCTION__, m_seeking?"true":"false"); fflush(stdout);
+            LOG_MEDIA_MESSAGE("m_seeking=%s", m_seeking?"true":"false");
             m_cachedPosition = -1;
             if (m_timeOfOverlappingSeek != m_seekTime && m_timeOfOverlappingSeek != -1) {
                 seek(m_timeOfOverlappingSeek);
@@ -1831,12 +1825,12 @@ void MediaPlayerPrivateGStreamerMSE::updateStates()
         switch (state) {
         case GST_STATE_NULL:
             m_readyState = MediaPlayer::HaveNothing;
-            printf("### %s: m_readyState=%s\n", __PRETTY_FUNCTION__, dumpReadyState(m_readyState)); fflush(stdout);
+            LOG_MEDIA_MESSAGE("m_readyState=%s", dumpReadyState(m_readyState));
             m_networkState = MediaPlayer::Empty;
             break;
         case GST_STATE_READY:
             m_readyState = MediaPlayer::HaveMetadata;
-            printf("### %s: m_readyState=%s\n", __PRETTY_FUNCTION__, dumpReadyState(m_readyState)); fflush(stdout);
+            LOG_MEDIA_MESSAGE("m_readyState=%s", dumpReadyState(m_readyState));
             m_networkState = MediaPlayer::Empty;
             break;
         case GST_STATE_PAUSED:
@@ -1844,26 +1838,26 @@ void MediaPlayerPrivateGStreamerMSE::updateStates()
             if (isMediaSource() && m_seeking && !timeIsBuffered(m_seekTime)) {
                 m_readyState = MediaPlayer::HaveMetadata;
                 // TODO: NetworkState?
-                printf("### %s: m_readyState=%s\n", __PRETTY_FUNCTION__, dumpReadyState(m_readyState)); fflush(stdout);
+                LOG_MEDIA_MESSAGE("m_readyState=%s", dumpReadyState(m_readyState));
             } else if (m_buffering) {
                 if (m_bufferingPercentage == 100) {
                     LOG_MEDIA_MESSAGE("[Buffering] Complete.");
                     m_buffering = false;
                     m_readyState = MediaPlayer::HaveEnoughData;
-                    printf("### %s: m_readyState=%s\n", __PRETTY_FUNCTION__, dumpReadyState(m_readyState)); fflush(stdout);
+                    LOG_MEDIA_MESSAGE("m_readyState=%s", dumpReadyState(m_readyState));
                     m_networkState = m_downloadFinished ? MediaPlayer::Idle : MediaPlayer::Loading;
                 } else {
                     m_readyState = MediaPlayer::HaveCurrentData;
-                    printf("### %s: m_readyState=%s\n", __PRETTY_FUNCTION__, dumpReadyState(m_readyState)); fflush(stdout);
+                    LOG_MEDIA_MESSAGE("m_readyState=%s", dumpReadyState(m_readyState));
                     m_networkState = MediaPlayer::Loading;
                 }
             } else if (m_downloadFinished) {
                 m_readyState = MediaPlayer::HaveEnoughData;
-                printf("### %s: m_readyState=%s\n", __PRETTY_FUNCTION__, dumpReadyState(m_readyState)); fflush(stdout);
+                LOG_MEDIA_MESSAGE("m_readyState=%s", dumpReadyState(m_readyState));
                 m_networkState = MediaPlayer::Loaded;
             } else {
                 m_readyState = MediaPlayer::HaveFutureData;
-                printf("### %s: m_readyState=%s\n", __PRETTY_FUNCTION__, dumpReadyState(m_readyState)); fflush(stdout);
+                LOG_MEDIA_MESSAGE("m_readyState=%s", dumpReadyState(m_readyState));
                 m_networkState = MediaPlayer::Loading;
             }
 
@@ -1919,10 +1913,10 @@ void MediaPlayerPrivateGStreamerMSE::updateStates()
 
         if (state == GST_STATE_READY) {
             m_readyState = MediaPlayer::HaveNothing;
-            printf("### %s: m_readyState=%s\n", __PRETTY_FUNCTION__, dumpReadyState(m_readyState)); fflush(stdout);
+            LOG_MEDIA_MESSAGE("m_readyState=%s", dumpReadyState(m_readyState));
         } else if (state == GST_STATE_PAUSED) {
             m_readyState = MediaPlayer::HaveEnoughData;
-            printf("### %s: m_readyState=%s\n", __PRETTY_FUNCTION__, dumpReadyState(m_readyState)); fflush(stdout);
+            LOG_MEDIA_MESSAGE("m_readyState=%s", dumpReadyState(m_readyState));
             m_paused = true;
         } else if (state == GST_STATE_PLAYING)
             m_paused = false;
@@ -1960,7 +1954,7 @@ void MediaPlayerPrivateGStreamerMSE::updateStates()
             LOG_MEDIA_MESSAGE("[Seek] committing pending seek to %f", m_seekTime);
             m_seekIsPending = false;
             m_seeking = doSeek(toGstClockTime(m_seekTime), m_player->rate(), static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE));
-            printf("### %s m_seeking=%s\n", __PRETTY_FUNCTION__, m_seeking?"true":"false"); fflush(stdout);
+            LOG_MEDIA_MESSAGE("m_seeking=%s", m_seeking?"true":"false");
             if (!m_seeking) {
                 m_cachedPosition = -1;
                 LOG_MEDIA_MESSAGE("[Seek] seeking to %f failed", m_seekTime);
@@ -2003,7 +1997,7 @@ RefPtr<MediaSourceClientGStreamerMSE> MediaPlayerPrivateGStreamerMSE::mediaSourc
 RefPtr<AppendPipeline> MediaPlayerPrivateGStreamerMSE::appendPipelineByTrackId(const AtomicString& trackId)
 {
     if (trackId == AtomicString()) {
-        printf("### %s: trackId is empty\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("trackId is empty");
     }
 
     ASSERT(!(trackId.isNull() || trackId.isEmpty()));
@@ -2089,7 +2083,7 @@ bool MediaPlayerPrivateGStreamerMSE::loadNextLocation()
             m_networkState = MediaPlayer::Loading;
             m_player->networkStateChanged();
             m_readyState = MediaPlayer::HaveNothing;
-            printf("### %s: m_readyState=%s\n", __PRETTY_FUNCTION__, dumpReadyState(m_readyState)); fflush(stdout);
+            LOG_MEDIA_MESSAGE("m_readyState=%s", dumpReadyState(m_readyState));
             m_player->readyStateChanged();
 
             // Reset pipeline state.
@@ -2177,18 +2171,18 @@ void MediaPlayerPrivateGStreamerMSE::durationChanged()
     float previousDuration = m_mediaDuration;
 
     if (!m_mediaSourceClient) {
-        printf("### %s: m_mediaSourceClient is null, not doing anything\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("m_mediaSourceClient is null, not doing anything");
         return;
     }
     m_mediaDuration = m_mediaSourceClient->duration().toFloat();
 
-    printf("### %s: previous=%f, new=%f\n", __PRETTY_FUNCTION__, previousDuration, m_mediaDuration); fflush(stdout);
+    LOG_MEDIA_MESSAGE("previous=%f, new=%f", previousDuration, m_mediaDuration);
     cacheDuration();
     // Avoid emiting durationchanged in the case where the previous
     // duration was 0 because that case is already handled by the
     // HTMLMediaElement.
     if (/*previousDuration &&*/ m_mediaDuration != previousDuration) {
-        printf("### %s: Notifying player\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("Notifying player");
         m_player->durationChanged();
     }
 }
@@ -2202,7 +2196,7 @@ void MediaPlayerPrivateGStreamerMSE::loadingFailed(MediaPlayer::NetworkState err
     }
     if (m_readyState != MediaPlayer::HaveNothing) {
         m_readyState = MediaPlayer::HaveNothing;
-        printf("### %s: m_readyState=%s\n", __PRETTY_FUNCTION__, dumpReadyState(m_readyState)); fflush(stdout);
+        LOG_MEDIA_MESSAGE("m_readyState=%s", dumpReadyState(m_readyState));
         m_player->readyStateChanged();
     }
 
@@ -2388,7 +2382,7 @@ void MediaPlayerPrivateGStreamerMSE::trackDetected(RefPtr<AppendPipeline> ap, Re
 {
     ASSERT (ap->track() == newTrack);
 
-    printf("### %s: %s\n", __PRETTY_FUNCTION__, newTrack->id().string().latin1().data()); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", newTrack->id().string().latin1().data());
 
     if (!oldTrack)
         m_playbackPipeline->attachTrack(ap->sourceBufferPrivate(), newTrack, ap->demuxersrcpadcaps());
@@ -2872,7 +2866,7 @@ AppendPipeline::AppendPipeline(PassRefPtr<MediaSourceClientGStreamerMSE> mediaSo
     , m_abortPending(false)
     , m_streamType(Unknown)
 {
-    printf("### %s %p\n", __PRETTY_FUNCTION__, this); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%p", this);
 
     m_pipeline = gst_pipeline_new(NULL);
 
@@ -2908,16 +2902,16 @@ AppendPipeline::AppendPipeline(PassRefPtr<MediaSourceClientGStreamerMSE> mediaSo
 
 AppendPipeline::~AppendPipeline()
 {
-    printf("### %s %p\n", __PRETTY_FUNCTION__, this); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%p", this);
     if (m_noDataToDecodeTimeoutTag) {
-        printf("### %s: m_noDataToDecodeTimeoutTag=%u\n", __PRETTY_FUNCTION__, m_noDataToDecodeTimeoutTag); fflush(stdout);
+        LOG_MEDIA_MESSAGE("m_noDataToDecodeTimeoutTag=%u", m_noDataToDecodeTimeoutTag);
         // TODO: Maybe notify appendComplete here?
         g_source_remove(m_noDataToDecodeTimeoutTag);
         m_noDataToDecodeTimeoutTag = 0;
     }
 
     if (m_lastSampleTimeoutTag) {
-        printf("### %s: m_lastSampleTimeoutTag=%u\n", __PRETTY_FUNCTION__, m_lastSampleTimeoutTag); fflush(stdout);
+        LOG_MEDIA_MESSAGE("m_lastSampleTimeoutTag=%u", m_lastSampleTimeoutTag);
         // TODO: Maybe notify appendComplete here?
         g_source_remove(m_lastSampleTimeoutTag);
         m_lastSampleTimeoutTag = 0;
@@ -2987,12 +2981,12 @@ gint AppendPipeline::id()
         m_id = totalText;
         break;
     case Unknown:
-        printf("### %s: Trying to get id for a pipeline of Unknown type\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("Trying to get id for a pipeline of Unknown type");
         g_assert_not_reached();
         break;
     }
 
-    printf("### %s: streamType=%d, id=%d\n", __PRETTY_FUNCTION__, static_cast<int>(m_streamType), m_id); fflush(stdout);
+    LOG_MEDIA_MESSAGE("streamType=%d, id=%d", static_cast<int>(m_streamType), m_id);
 
     return m_id;
 }
@@ -3010,7 +3004,7 @@ void AppendPipeline::setAppendStage(AppendStage newAppendStage)
 
     bool ok = false;
 
-    printf("### %s: %s --> %s\n", __PRETTY_FUNCTION__, dumpAppendStage(oldAppendStage), dumpAppendStage(newAppendStage)); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s --> %s", dumpAppendStage(oldAppendStage), dumpAppendStage(newAppendStage));
 
     switch (oldAppendStage) {
     case NotStarted:
@@ -3056,7 +3050,7 @@ void AppendPipeline::setAppendStage(AppendStage newAppendStage)
             }
 
             if (m_lastSampleTimeoutTag) {
-                printf("### %s: lastSampleTimeoutTag already exists while transitioning Ongoing-->Sampling\n", __PRETTY_FUNCTION__); fflush(stdout);
+                LOG_MEDIA_MESSAGE("lastSampleTimeoutTag already exists while transitioning Ongoing-->Sampling");
                 g_source_remove(m_lastSampleTimeoutTag);
                 m_lastSampleTimeoutTag = 0;
             }
@@ -3146,7 +3140,7 @@ void AppendPipeline::setAppendStage(AppendStage newAppendStage)
     if (ok)
         m_appendStage = newAppendStage;
     else {
-        printf("### %s: Invalid append stage transition %s --> %s\n", __PRETTY_FUNCTION__, dumpAppendStage(oldAppendStage), dumpAppendStage(newAppendStage)); fflush(stdout);
+        LOG_MEDIA_MESSAGE("Invalid append stage transition %s --> %s", dumpAppendStage(oldAppendStage), dumpAppendStage(newAppendStage));
     }
 
     g_assert(ok);
@@ -3206,7 +3200,7 @@ void AppendPipeline::updatePresentationSize(GstCaps* demuxersrcpadcaps)
 
 void AppendPipeline::demuxerPadAdded(GstPad* demuxersrcpad)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
     // TODO: Update presentation size, see webKitMediaSrcUpdatePresentationSize().
 
     /*
@@ -3228,7 +3222,7 @@ void AppendPipeline::demuxerPadAdded(GstPad* demuxersrcpad)
     } else {
         // No useful data, but notify anyway to complete the append operation (webKitMediaSrcLastSampleTimeout is cancelled and won't notify in this case)
         // TODO: EME uses its own special types.
-        printf("### %s: (no data)\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("(no data)");
         m_mediaSourceClient->didReceiveAllPendingSamples(m_sourceBufferPrivate.get());
         return;
     }
@@ -3240,20 +3234,20 @@ void AppendPipeline::demuxerPadAdded(GstPad* demuxersrcpad)
 
 void AppendPipeline::demuxerPadRemoved(GstPad*)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
     // TODO: Remove this method if it's useless in the end.
 }
 
 void AppendPipeline::appSinkCapsChanged()
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     GstPad* appsinkpad = gst_element_get_static_pad(m_appsink, "sink");
     GstCaps* caps = gst_pad_get_current_caps(GST_PAD(appsinkpad));
 
     {
         gchar* strcaps = gst_caps_to_string(caps);
-        printf("!!! %s: %s\n", __PRETTY_FUNCTION__, strcaps); fflush(stdout);
+        LOG_MEDIA_MESSAGE("%s", strcaps);
         g_free(strcaps);
     }
 
@@ -3284,7 +3278,7 @@ void AppendPipeline::appSinkCapsChanged()
     } else {
         // No useful data, but notify anyway to complete the append operation (webKitMediaSrcLastSampleTimeout is cancelled and won't notify in this case)
         // TODO: EME uses its own special types.
-        printf("### %s: (no data)\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("(no data)");
         isData = false;
         m_mediaSourceClient->didReceiveAllPendingSamples(m_sourceBufferPrivate.get());
     }
@@ -3302,7 +3296,7 @@ void AppendPipeline::appSinkNewSample(GstSample* sample)
 {
     // Ignore samples if we're not expecting them.
     if (!(m_appendStage == Ongoing || m_appendStage == Sampling)) {
-        printf("### %s: Unexpected sample\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("Unexpected sample");
         return;
     }
 
@@ -3310,12 +3304,12 @@ void AppendPipeline::appSinkNewSample(GstSample* sample)
 
     RefPtr<GStreamerMediaSample> mediaSample = WebCore::GStreamerMediaSample::create(sample, m_presentationSize, trackId);
 
-    printf("### %s: trackId=%s PTS=%f presentationSize=%.0fx%.0f\n", __PRETTY_FUNCTION__, trackId.string().utf8().data(), mediaSample->presentationTime().toFloat(), mediaSample->presentationSize().width(), mediaSample->presentationSize().height()); fflush(stdout);
+    LOG_MEDIA_MESSAGE("trackId=%s PTS=%f presentationSize=%.0fx%.0f", trackId.string().utf8().data(), mediaSample->presentationTime().toFloat(), mediaSample->presentationSize().width(), mediaSample->presentationSize().height());
 
     // If we're beyond the duration, ignore this sample and the remaining ones.
     MediaTime duration = m_mediaSourceClient->duration();
     if (duration.isValid() && !duration.indefiniteTime() && mediaSample->presentationTime() > duration) {
-        printf("### %s: Detected sample (%f) beyond the duration (%f), declaring LastSample\n", __PRETTY_FUNCTION__, mediaSample->presentationTime().toFloat(), duration.toFloat()); fflush(stdout);
+        LOG_MEDIA_MESSAGE("Detected sample (%f) beyond the duration (%f), declaring LastSample", mediaSample->presentationTime().toFloat(), duration.toFloat());
         setAppendStage(LastSample);
         return;
     }
@@ -3349,14 +3343,14 @@ void AppendPipeline::appSinkEOS()
         setAppendStage(LastSample);
         break;
     default:
-        printf("### %s: Unexpected EOS\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("Unexpected EOS");
         break;
     }
 }
 
 void AppendPipeline::didReceiveInitializationSegment()
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     WebCore::SourceBufferPrivateClient::InitializationSegment initializationSegment;
 
@@ -3379,7 +3373,7 @@ void AppendPipeline::didReceiveInitializationSegment()
         }
         break;
     default:
-        printf("%s: Unsupported or unknown stream type\n", __PRETTY_FUNCTION__); fflush(stdout);
+        LOG_MEDIA_MESSAGE("Unsupported or unknown stream type");
         ASSERT_NOT_REACHED();
         break;
     }
@@ -3397,7 +3391,7 @@ AtomicString AppendPipeline::trackId()
 
 void AppendPipeline::resetPipeline()
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
     gst_element_set_state(m_pipeline, GST_STATE_READY);
     gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
 
@@ -3509,7 +3503,7 @@ static void appendPipelineAppSinkEOS(GstElement*, AppendPipeline* ap)
         g_timeout_add(0, GSourceFunc(appendPipelineAppSinkEOSMainThread), ap);
     }
 
-    printf("### %s: %s main thread\n", __PRETTY_FUNCTION__, (WTF::isMainThread())?"IS":"NOT"); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s main thread", (WTF::isMainThread())?"IS":"NOT");
 }
 
 static gboolean appendPipelineAppSinkEOSMainThread(AppendPipeline* ap)
@@ -3521,7 +3515,7 @@ static gboolean appendPipelineAppSinkEOSMainThread(AppendPipeline* ap)
 
 static gboolean appendPipelineNoDataToDecodeTimeout(AppendPipeline* ap)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     ap->setAppendStage(AppendPipeline::NoDataToDecode);
     return G_SOURCE_REMOVE;
@@ -3529,7 +3523,7 @@ static gboolean appendPipelineNoDataToDecodeTimeout(AppendPipeline* ap)
 
 static gboolean appendPipelineLastSampleTimeout(AppendPipeline* ap)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     ap->setAppendStage(AppendPipeline::LastSample);
     return G_SOURCE_REMOVE;
@@ -3555,7 +3549,7 @@ MediaSourceClientGStreamerMSE::~MediaSourceClientGStreamerMSE()
 MediaSourcePrivate::AddStatus MediaSourceClientGStreamerMSE::addSourceBuffer(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, const ContentType&)
 {
     RefPtr<AppendPipeline> ap = adoptRef(new AppendPipeline(this, sourceBufferPrivate, m_playerPrivate.get()));
-    printf("### %s: this=%p sourceBuffer=%p ap=%p\n", __PRETTY_FUNCTION__, this, sourceBufferPrivate.get(), ap.get()); fflush(stdout);
+    LOG_MEDIA_MESSAGE("this=%p sourceBuffer=%p ap=%p", this, sourceBufferPrivate.get(), ap.get());
     m_playerPrivate->m_appendPipelinesMap.add(sourceBufferPrivate, ap);
     if (!m_playerPrivate->mediaSourceClient())
         m_playerPrivate->setMediaSourceClient(ap->mediaSourceClient());
@@ -3572,7 +3566,7 @@ MediaTime MediaSourceClientGStreamerMSE::duration()
 
 void MediaSourceClientGStreamerMSE::durationChanged(const MediaTime& duration)
 {
-    printf("### %s: duration=%f\n", __PRETTY_FUNCTION__, duration.toFloat()); fflush(stdout);
+    LOG_MEDIA_MESSAGE("duration=%f", duration.toFloat());
 
     if (!duration.isValid() || duration.isPositiveInfinite() || duration.isNegativeInfinite())
         return;
@@ -3586,7 +3580,7 @@ void MediaSourceClientGStreamerMSE::durationChanged(const MediaTime& duration)
 
 void MediaSourceClientGStreamerMSE::abort(PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
 
     RefPtr<AppendPipeline> ap = m_playerPrivate->m_appendPipelinesMap.get(sourceBufferPrivate);
     ap->abort();
@@ -3594,7 +3588,7 @@ void MediaSourceClientGStreamerMSE::abort(PassRefPtr<SourceBufferPrivateGStreame
 
 bool MediaSourceClientGStreamerMSE::append(PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, const unsigned char* data, unsigned length)
 {
-    printf("### %s: %u bytes\n", __PRETTY_FUNCTION__, length); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%u bytes", length);
 
     RefPtr<AppendPipeline> ap = m_playerPrivate->m_appendPipelinesMap.get(sourceBufferPrivate);
     GstBuffer* buffer = gst_buffer_new_and_alloc(length);
@@ -3652,7 +3646,7 @@ void MediaSourceClientGStreamerMSE::didReceiveSample(SourceBufferPrivateGStreame
 
 void MediaSourceClientGStreamerMSE::didReceiveAllPendingSamples(SourceBufferPrivateGStreamer* sourceBuffer)
 {
-    printf("### %s\n", __PRETTY_FUNCTION__); fflush(stdout);
+    LOG_MEDIA_MESSAGE("%s", "");
     sourceBuffer->didReceiveAllPendingSamples();
 }
 
