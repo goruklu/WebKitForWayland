@@ -372,7 +372,6 @@ bool MediaPlayer::load(const URL& url, const ContentType& contentType, MediaSour
     m_url = url;
     m_keySystem = "";
     m_contentMIMETypeWasInferredFromExtension = false;
-
     loadWithNextMediaEngine(0);
     return m_currentMediaEngine;
 }

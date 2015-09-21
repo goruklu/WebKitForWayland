@@ -76,18 +76,6 @@
 
 #include <wtf/MainThread.h>
 
-static const char* dumpReadyState(WebCore::MediaPlayer::ReadyState readyState)
-{
-    switch (readyState) {
-    case WebCore::MediaPlayer::HaveNothing: return "HaveNothing";
-    case WebCore::MediaPlayer::HaveMetadata: return "HaveMetadata";
-    case WebCore::MediaPlayer::HaveCurrentData: return "HaveCurrentData";
-    case WebCore::MediaPlayer::HaveFutureData: return "HaveFutureData";
-    case WebCore::MediaPlayer::HaveEnoughData: return "HaveEnoughData";
-    default: return "(unknown)";
-    }
-}
-
 // Max interval in seconds to stay in the READY state on manual
 // state change requests.
 static const unsigned gReadyStateTimerInterval = 60;
@@ -335,7 +323,7 @@ MediaPlayerPrivateGStreamer::~MediaPlayerPrivateGStreamer()
 }
 
 #if ENABLE(MEDIA_SOURCE)
-void MediaPlayerPrivateGStreamer::load(const String& url, MediaSourcePrivateClient* mediaSource)
+void MediaPlayerPrivateGStreamer::load(const String&, MediaSourcePrivateClient*)
 {
     notImplemented();
 }

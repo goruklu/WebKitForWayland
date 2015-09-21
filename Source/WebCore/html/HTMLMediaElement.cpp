@@ -2722,7 +2722,6 @@ MediaTime HTMLMediaElement::currentMediaTime() const
             if (delta > minCachedDeltaForWarning)
                 LOG(Media, "HTMLMediaElement::currentTime(%p) - WARNING, cached time is %f seconds off of media time when playing", this, delta);
 #endif
-
             return adjustedCacheTime;
         }
     }
@@ -2739,7 +2738,7 @@ MediaTime HTMLMediaElement::currentMediaTime() const
 
     if (m_cachedTime.isInvalid())
         return MediaTime::zeroTime();
-
+    
     return m_cachedTime;
 }
 

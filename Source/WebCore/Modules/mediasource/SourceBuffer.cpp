@@ -589,10 +589,8 @@ void SourceBuffer::appendBufferTimerFired()
     m_pendingAppendData.clear();
 }
 
-void SourceBuffer::sourceBufferPrivateAppendComplete(SourceBufferPrivate* sourceBufferPrivate, AppendResult result)
+void SourceBuffer::sourceBufferPrivateAppendComplete(SourceBufferPrivate*, AppendResult result)
 {
-    if (sourceBufferPrivate)
-        sourceBufferPrivate->appendComplete(result);
     if (isRemoved())
         return;
 

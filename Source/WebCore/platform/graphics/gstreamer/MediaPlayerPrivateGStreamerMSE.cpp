@@ -3600,11 +3600,6 @@ bool MediaSourceClientGStreamerMSE::append(PassRefPtr<SourceBufferPrivateGStream
     return (ret == GST_FLOW_OK);
 }
 
-void MediaSourceClientGStreamerMSE::appendComplete(SourceBufferPrivateClient::AppendResult)
-{
-    // TODO
-}
-
 void MediaSourceClientGStreamerMSE::markEndOfStream(MediaSourcePrivate::EndOfStreamStatus)
 {
     // TODO

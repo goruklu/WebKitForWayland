@@ -52,7 +52,6 @@ class PlatformTimeRanges;
 // FIXME: Should this be called MediaSourcePrivateGStreamer?
 class MediaSourceGStreamer : public MediaSourcePrivate {
 public:
-    static void open(MediaSourcePrivateClient*, WebKitMediaSrc*, MediaPlayerPrivateGStreamerBase*);
     static void open(MediaSourcePrivateClient*, RefPtr<MediaPlayerPrivateGStreamerMSE>);
     virtual ~MediaSourceGStreamer();
 

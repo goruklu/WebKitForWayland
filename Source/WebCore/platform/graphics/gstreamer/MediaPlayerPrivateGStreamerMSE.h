@@ -365,7 +365,6 @@ class MediaSourceClientGStreamerMSE: public RefCounted<MediaSourceClientGStreame
         // From SourceBufferPrivateGStreamer
         void abort(PassRefPtr<SourceBufferPrivateGStreamer>);
         bool append(PassRefPtr<SourceBufferPrivateGStreamer>, const unsigned char*, unsigned);
-        void appendComplete(SourceBufferPrivateClient::AppendResult);
         void removedFromMediaSource(RefPtr<SourceBufferPrivateGStreamer>);
         void flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString);
         void enqueueSample(PassRefPtr<MediaSample> sample, AtomicString trackIDString);

@@ -76,25 +76,6 @@ void SourceBufferPrivateGStreamer::append(const unsigned char* data, unsigned le
         m_sourceBufferPrivateClient->sourceBufferPrivateAppendComplete(this, SourceBufferPrivateClient::ReadStreamFailed);
 }
 
-void SourceBufferPrivateGStreamer::appendComplete(SourceBufferPrivateClient::AppendResult appendResult)
-{
-    // DEBUG
-    {
-        const char *result;
-        switch (appendResult) {
-        case SourceBufferPrivateClient::AppendSucceeded: result = "Succeeded"; break;
-        case SourceBufferPrivateClient::ParsingFailed: result = "Parsing failed"; break;
-        case SourceBufferPrivateClient::ReadStreamFailed: result = "Read stream failed"; break;
-        default: result = "Unknown"; break;
-        }
-        LOG_MEDIA_MESSAGE("%s", result);
-    }
-
-    if (m_client)
-        m_client->appendComplete(appendResult);
-
-}
-
 void SourceBufferPrivateGStreamer::abort()
 {
     if (m_client)

@@ -48,19 +48,6 @@
 
 namespace WebCore {
 
-// TODO: Remove.
-void MediaSourceGStreamer::open(MediaSourcePrivateClient* mediaSource, WebKitMediaSrc* src, MediaPlayerPrivateGStreamerBase* playerPrivate)
-{
-    notImplemented();
-
-    /*
-    ASSERT(mediaSource);
-    RefPtr<MediaSourceGStreamer> mediaSourcePrivate = adoptRef(new MediaSourceGStreamer(mediaSource, src));
-    mediaSourcePrivate->m_playerPrivate = playerPrivate;
-    mediaSource->setPrivateAndOpen(mediaSourcePrivate.releaseNonNull());
-    */
-}
-
 void MediaSourceGStreamer::open(MediaSourcePrivateClient* mediaSource, RefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate)
 {
     ASSERT(mediaSource);
@@ -69,7 +56,6 @@ void MediaSourceGStreamer::open(MediaSourcePrivateClient* mediaSource, RefPtr<Me
     mediaSource->setPrivateAndOpen(mediaSourcePrivate.releaseNonNull());
 }
 
-// TODO: Remove.
 MediaSourceGStreamer::MediaSourceGStreamer(MediaSourcePrivateClient* mediaSource, PassRefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate)
     : MediaSourcePrivate()
     , m_mediaSource(mediaSource)
