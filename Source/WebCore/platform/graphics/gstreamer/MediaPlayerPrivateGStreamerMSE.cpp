@@ -155,8 +155,6 @@ public:
 
     // Takes ownership of caps.
     void updatePresentationSize(GstCaps* demuxersrcpadcaps);
-    void demuxerPadAdded(GstPad* demuxersrcpad);
-    void demuxerPadRemoved(GstPad*);
     void appSinkCapsChanged();
     void appSinkNewSample(GstSample* sample);
     void appSinkEOS();
@@ -269,14 +267,6 @@ static GstFlowReturn mediaPlayerPrivateNewTextSampleCallback(GObject*, MediaPlay
     return GST_FLOW_OK;
 }
 
-/* // This is now directly handled by MediaSourceClientGStreamerMSE
-static gboolean mediaPlayerPrivateNotifyDurationChanged(MediaPlayerPrivateGStreamerMSE* player)
-{
-    player->notifyDurationChanged();
-    return G_SOURCE_REMOVE;
-}
-*/
-
 void MediaPlayerPrivateGStreamerMSE::setAudioStreamProperties(GObject* object)
 {
     if (g_strcmp0(G_OBJECT_TYPE_NAME(object), "GstPulseSink"))
@@ -301,14 +291,6 @@ static bool initializeGStreamerAndRegisterWebKitElements()
 {
     if (!initializeGStreamer())
         return false;
-
-    /*
-    GRefPtr<GstElementFactory> srcFactory = gst_element_factory_find("webkitwebsrc");
-    if (!srcFactory) {
-        GST_DEBUG_CATEGORY_INIT(webkit_media_player_debug, "webkitmediaplayer", 0, "WebKit media player");
-        gst_element_register(0, "webkitwebsrc", GST_RANK_PRIMARY + 100, WEBKIT_TYPE_WEB_SRC);
-    }
-    */
 
 #if ENABLE(ENCRYPTED_MEDIA)
     GRefPtr<GstElementFactory> cencDecryptorFactory = gst_element_factory_find("webkitcencdec");
@@ -674,37 +656,6 @@ float MediaPlayerPrivateGStreamerMSE::duration() const
         return 0.0f;
 
     return m_mediaDuration;
-
-    /*
-    // Media duration query failed already, don't attempt new useless queries.
-    if (!m_mediaDurationKnown)
-        return numeric_limits<float>::infinity();
-
-    if (m_mediaDuration)
-        return m_mediaDuration;
-
-    GstFormat timeFormat = GST_FORMAT_TIME;
-    gint64 timeLength = 0;
-
-    bool failure = !gst_element_query_duration(m_pipeline.get(), timeFormat, &timeLength) || static_cast<guint64>(timeLength) == GST_CLOCK_TIME_NONE;
-
-    if (failure && m_source)
-        failure = !gst_element_query_duration(m_source.get(), timeFormat, &timeLength) || static_cast<guint64>(timeLength) == GST_CLOCK_TIME_NONE;
-
-    if (failure && m_mediaSource)
-        return m_mediaSource->duration().toFloat();
-
-    if (failure) {
-        LOG_MEDIA_MESSAGE("Time duration query failed for %s", m_url.string().utf8().data());
-        return numeric_limits<float>::infinity();
-    }
-
-    LOG_MEDIA_MESSAGE("Duration: %" GST_TIME_FORMAT, GST_TIME_ARGS(timeLength));
-
-    m_mediaDuration = static_cast<double>(timeLength) / GST_SECOND;
-    return m_mediaDuration;
-    // FIXME: handle 3.14.9.5 properly
-    */
 }
 
 float MediaPlayerPrivateGStreamerMSE::currentTime() const
@@ -718,11 +669,6 @@ float MediaPlayerPrivateGStreamerMSE::currentTime() const
         LOG_MEDIA_MESSAGE("(ERROR) %f", 0.0f);
         return 0.0f;
     }
-
-    // if (m_seeking) {
-    //     LOG_MEDIA_MESSAGE("(SEEKING) %f", m_seekTime);
-    //     return m_seekTime;
-    // }
 
     // Workaround for
     // https://bugzilla.gnome.org/show_bug.cgi?id=639941 In GStreamer
@@ -885,49 +831,10 @@ void MediaPlayerPrivateGStreamerMSE::updatePlaybackRate()
     if (!m_changingRate)
         return;
 
-    LOG_MEDIA_MESSAGE("%s", "");
+    LOG_MEDIA_MESSAGE("%s", "Not implemented");
 
     // Not implemented
     return;
-
-    /*
-    float currentPosition = static_cast<float>(playbackPosition() * GST_SECOND);
-    bool mute = false;
-
-    INFO_MEDIA_MESSAGE("Set Rate to %f", m_playbackRate);
-
-    if (m_playbackRate > 0) {
-        // Mute the sound if the playback rate is too extreme and
-        // audio pitch is not adjusted.
-        mute = (!m_preservesPitch && (m_playbackRate < 0.8 || m_playbackRate > 2));
-    } else {
-        if (currentPosition == 0.0f)
-            currentPosition = -1.0f;
-        mute = true;
-    }
-
-    INFO_MEDIA_MESSAGE("Need to mute audio?: %d", (int) mute);
-    if (doSeek(currentPosition, m_playbackRate, static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH))) {
-        g_object_set(m_pipeline.get(), "mute", mute, nullptr);
-        m_lastPlaybackRate = m_playbackRate;
-    } else {
-        m_playbackRate = m_lastPlaybackRate;
-        ERROR_MEDIA_MESSAGE("Set rate to %f failed", m_playbackRate);
-    }
-
-    if (m_playbackRatePause) {
-        GstState state;
-        GstState pending;
-
-        gst_element_get_state(m_pipeline.get(), &state, &pending, 0);
-        if (state != GST_STATE_PLAYING && pending != GST_STATE_PLAYING)
-            changePipelineState(GST_STATE_PLAYING);
-        m_playbackRatePause = false;
-    }
-
-    m_changingRate = false;
-    m_player->rateChanged();
-    */
 }
 
 bool MediaPlayerPrivateGStreamerMSE::paused() const
@@ -1176,54 +1083,6 @@ std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateGStreamerMSE::buffered() c
     return m_mediaSource->buffered();
 }
 
-static StreamType getStreamType(GstElement* element)
-{
-    g_return_val_if_fail(GST_IS_ELEMENT(element), Unknown);
-
-    GstIterator* it;
-    GValue item = G_VALUE_INIT;
-    StreamType result = Unknown;
-
-    it = gst_element_iterate_sink_pads(element);
-
-    if (it && (gst_iterator_next(it, &item)) == GST_ITERATOR_OK) {
-        GstPad* pad = GST_PAD(g_value_get_object(&item));
-        if (pad) {
-            GstCaps* caps = gst_pad_get_current_caps(pad);
-            if (caps && GST_IS_CAPS(caps)) {
-                const GstStructure* structure = gst_caps_get_structure(caps, 0);
-                if (structure) {
-                    const gchar* mediatype = gst_structure_get_name(structure);
-                    if (mediatype) {
-                        // Look for "audio", "video", "text"
-                        switch (mediatype[0]) {
-                        case 'a':
-                            result = Audio;
-                            break;
-                        case 'v':
-                            result = Video;
-                            break;
-                        case 't':
-                            result = Text;
-                            break;
-                        default:
-                            break;
-                        }
-                    }
-                }
-                gst_caps_unref(caps);
-            }
-        }
-    }
-
-    g_value_unset(&item);
-
-    if (it)
-        gst_iterator_free(it);
-
-    return result;
-}
-
 void MediaPlayerPrivateGStreamerMSE::handleSyncMessage(GstMessage* message)
 {
     switch (GST_MESSAGE_TYPE(message)) {
@@ -1272,16 +1131,6 @@ void MediaPlayerPrivateGStreamerMSE::handleSyncMessage(GstMessage* message)
 #endif
             break;
         }
-        /* // This is now directly handled by MediaSourceClientGStreamerMSE
-        case GST_MESSAGE_DURATION_CHANGED:
-        {
-            m_pendingAsyncOperationsLock.lock();
-            guint asyncOperationId = g_timeout_add(0, (GSourceFunc)mediaPlayerPrivateNotifyDurationChanged, this);
-            m_pendingAsyncOperations = g_list_append(m_pendingAsyncOperations, GUINT_TO_POINTER(asyncOperationId));
-            m_pendingAsyncOperationsLock.unlock();
-            break;
-        }
-        */
         default:
             break;
     }
@@ -1385,11 +1234,6 @@ gboolean MediaPlayerPrivateGStreamerMSE::handleMessage(GstMessage* message)
     case GST_MESSAGE_BUFFERING:
         processBufferingStats(message);
         break;
-/* // This is now directly handled by MediaSourceClientGStreamerMSE
-    case GST_MESSAGE_DURATION_CHANGED:
-        durationChanged();
-        break;
-*/
     case GST_MESSAGE_REQUEST_STATE:
         gst_message_parse_request_state(message, &requestedState);
         gst_element_get_state(m_pipeline.get(), &currentState, nullptr, 250 * GST_NSECOND);
@@ -1459,15 +1303,6 @@ gboolean MediaPlayerPrivateGStreamerMSE::handleMessage(GstMessage* message)
     case GST_MESSAGE_TOC:
         processTableOfContents(message);
         break;
-/*
-    case GST_MESSAGE_RESET_TIME:
-        if (m_source && WEBKIT_IS_MEDIA_SRC(m_source.get())) {
-            StreamType streamType = getStreamType(GST_ELEMENT(GST_MESSAGE_SRC(message)));
-            if (streamType == Audio || streamType == Video)
-                webkit_media_src_segment_needed(WEBKIT_MEDIA_SRC(m_source.get()), streamType);
-        }
-        break;
-*/
     default:
         LOG_MEDIA_MESSAGE("Unhandled GStreamer message type: %s",
                     GST_MESSAGE_TYPE_NAME(message));
@@ -1963,20 +1798,6 @@ void MediaPlayerPrivateGStreamerMSE::updateStates()
     }
 }
 
-GRefPtr<GstCaps> MediaPlayerPrivateGStreamerMSE::currentDemuxerCaps() const
-{
-    GRefPtr<GstCaps> result;
-    if (m_mediaSource && WEBKIT_IS_MEDIA_SRC(m_source.get())) {
-        // METRO FIXME: Select the current demuxer pad (how to know?) instead of the first one
-        GstPad* demuxersrcpad = webkit_media_src_get_video_pad(WEBKIT_MEDIA_SRC(m_source.get()), 0);
-
-        if (demuxersrcpad) {
-            result = adoptGRef(gst_pad_get_current_caps(demuxersrcpad));
-        }
-    }
-    return result;
-}
-
 bool MediaPlayerPrivateGStreamerMSE::timeIsBuffered(float time)
 {
     bool result = isMediaSource() && m_mediaSource->buffered()->contain(MediaTime::createWithFloat(time));
@@ -2181,7 +2002,7 @@ void MediaPlayerPrivateGStreamerMSE::durationChanged()
     // Avoid emiting durationchanged in the case where the previous
     // duration was 0 because that case is already handled by the
     // HTMLMediaElement.
-    if (/*previousDuration &&*/ m_mediaDuration != previousDuration) {
+    if (m_mediaDuration != previousDuration) {
         LOG_MEDIA_MESSAGE("Notifying player");
         m_player->durationChanged();
     }
@@ -2769,30 +2590,6 @@ GStreamerMediaSample::~GStreamerMediaSample()
         gst_sample_unref(m_sample);
 }
 
-
-// Auxiliar to pass several parameters to appendPipelineDemuxerPadXXXMainThread().
-class DemuxerPadInfo
-{
-public:
-    DemuxerPadInfo(GstPad* demuxerSrcPad, AppendPipeline* appendPipeline)
-        : m_pad(demuxerSrcPad)
-        , m_ap(appendPipeline)
-    {
-        gst_object_ref(m_pad);
-    }
-    virtual ~DemuxerPadInfo()
-    {
-        gst_object_unref(m_pad);
-    }
-
-    GstPad* pad() { return m_pad; }
-    RefPtr<AppendPipeline> ap() { return m_ap; }
-
-private:
-    GstPad* m_pad;
-    RefPtr<AppendPipeline> m_ap;
-};
-
 // Auxiliar to pass several parameters to appendPipelineAppSinkNewSampleMainThread().
 class NewSampleInfo
 {
@@ -2841,9 +2638,7 @@ static const char* dumpAppendStage(AppendPipeline::AppendStage appendStage)
 }
 
 static void appendPipelineDemuxerPadAdded(GstElement*, GstPad*, AppendPipeline*);
-static gboolean appendPipelineDemuxerPadAddedMainThread(DemuxerPadInfo*);
 static void appendPipelineDemuxerPadRemoved(GstElement*, GstPad*, AppendPipeline*);
-static gboolean appendPipelineDemuxerPadRemovedMainThread(DemuxerPadInfo*);
 static void appendPipelineAppSinkCapsChanged(GObject*, GParamSpec*, AppendPipeline*);
 static gboolean appendPipelineAppSinkCapsChangedMainThread(AppendPipeline*);
 static void appendPipelineAppSinkNewSample(GstElement*, AppendPipeline*);
@@ -3198,46 +2993,6 @@ void AppendPipeline::updatePresentationSize(GstCaps* demuxersrcpadcaps)
     }
 }
 
-void AppendPipeline::demuxerPadAdded(GstPad* demuxersrcpad)
-{
-    LOG_MEDIA_MESSAGE("%s", "");
-    // TODO: Update presentation size, see webKitMediaSrcUpdatePresentationSize().
-
-    /*
-    updatePresentationSize(gst_pad_get_current_caps(demuxersrcpad));
-
-    RefPtr<WebCore::TrackPrivateBase> oldTrack = m_track;
-    GstStructure* s = gst_caps_get_structure(m_demuxersrcpadcaps, 0);
-    const gchar* mediaType = gst_structure_get_name(s);
-
-    if (g_str_has_prefix(mediaType, "audio")) {
-        m_streamType = Audio;
-        m_track = WebCore::AudioTrackPrivateGStreamer::create(m_playerPrivate->pipeline(), id(), demuxersrcpad);
-    } else if (g_str_has_prefix(mediaType, "video")) {
-        m_streamType = Video;
-        m_track = WebCore::VideoTrackPrivateGStreamer::create(m_playerPrivate->pipeline(), id(), demuxersrcpad);
-    } else if (g_str_has_prefix(mediaType, "text")) {
-        m_streamType = Text;
-        m_track = WebCore::InbandTextTrackPrivateGStreamer::create(id(), demuxersrcpad);
-    } else {
-        // No useful data, but notify anyway to complete the append operation (webKitMediaSrcLastSampleTimeout is cancelled and won't notify in this case)
-        // TODO: EME uses its own special types.
-        LOG_MEDIA_MESSAGE("(no data)");
-        m_mediaSourceClient->didReceiveAllPendingSamples(m_sourceBufferPrivate.get());
-        return;
-    }
-
-    m_playerPrivate->trackDetected(this, oldTrack, m_track);
-    didReceiveInitializationSegment();
-    */
-}
-
-void AppendPipeline::demuxerPadRemoved(GstPad*)
-{
-    LOG_MEDIA_MESSAGE("%s", "");
-    // TODO: Remove this method if it's useless in the end.
-}
-
 void AppendPipeline::appSinkCapsChanged()
 {
     LOG_MEDIA_MESSAGE("%s", "");
@@ -3423,38 +3178,12 @@ static void appendPipelineDemuxerPadAdded(GstElement*, GstPad* demuxersrcpad, Ap
     ASSERT(!gst_pad_is_linked(sinkpad));
     gst_pad_link(demuxersrcpad, sinkpad);
     gst_object_unref(sinkpad);
-
-    if (WTF::isMainThread())
-        ap->demuxerPadAdded(demuxersrcpad);
-    else
-        g_timeout_add(0, GSourceFunc(appendPipelineDemuxerPadAddedMainThread), new DemuxerPadInfo(demuxersrcpad, ap));
 }
 
-static gboolean appendPipelineDemuxerPadAddedMainThread(DemuxerPadInfo* info)
-{
-    if (info->ap()->qtdemux())
-        info->ap()->demuxerPadAdded(info->pad());
-    delete info;
-    return G_SOURCE_REMOVE;
-}
-
-static void appendPipelineDemuxerPadRemoved(GstElement*, GstPad* demuxersrcpad, AppendPipeline* ap)
+static void appendPipelineDemuxerPadRemoved(GstElement*, GstPad*, AppendPipeline* ap)
 {
     // Must be done in the streaming thread.
     gst_element_unlink(ap->qtdemux(), ap->appsink());
-
-    if (WTF::isMainThread())
-        ap->demuxerPadRemoved(demuxersrcpad);
-    else
-        g_timeout_add(0, GSourceFunc(appendPipelineDemuxerPadRemovedMainThread), new DemuxerPadInfo(demuxersrcpad, ap));
-}
-
-static gboolean appendPipelineDemuxerPadRemovedMainThread(DemuxerPadInfo* info)
-{
-    if (info->ap()->qtdemux())
-        info->ap()->demuxerPadRemoved(info->pad());
-    delete info;
-    return G_SOURCE_REMOVE;
 }
 
 static void appendPipelineAppSinkCapsChanged(GObject*, GParamSpec*, AppendPipeline* ap)
@@ -3619,12 +3348,12 @@ void MediaSourceClientGStreamerMSE::removedFromMediaSource(RefPtr<SourceBufferPr
     m_playerPrivate->m_playbackPipeline->removeSourceBuffer(sourceBufferPrivate);
 }
 
-void MediaSourceClientGStreamerMSE::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString)
+void MediaSourceClientGStreamerMSE::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples)
 {
     m_playerPrivate->m_playbackPipeline->flushAndEnqueueNonDisplayingSamples(samples);
 }
 
-void MediaSourceClientGStreamerMSE::enqueueSample(PassRefPtr<MediaSample> prsample, AtomicString trackIDString)
+void MediaSourceClientGStreamerMSE::enqueueSample(PassRefPtr<MediaSample> prsample)
 {
     m_playerPrivate->m_playbackPipeline->enqueueSample(prsample);
 }

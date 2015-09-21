@@ -102,14 +102,16 @@ void SourceBufferPrivateGStreamer::setReadyState(MediaPlayer::ReadyState state)
 
 void SourceBufferPrivateGStreamer::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString)
 {
+    UNUSED_PARAM(trackIDString);
     if (m_client)
-        m_client->flushAndEnqueueNonDisplayingSamples(samples, trackIDString);
+        m_client->flushAndEnqueueNonDisplayingSamples(samples);
 }
 
 void SourceBufferPrivateGStreamer::enqueueSample(PassRefPtr<MediaSample> sample, AtomicString trackIDString)
 {
+    UNUSED_PARAM(trackIDString);
     if (m_client)
-        m_client->enqueueSample(sample, trackIDString);
+        m_client->enqueueSample(sample);
 }
 
 bool SourceBufferPrivateGStreamer::isReadyForMoreSamples(AtomicString)

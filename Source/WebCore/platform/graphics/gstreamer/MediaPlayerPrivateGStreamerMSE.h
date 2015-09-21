@@ -235,7 +235,6 @@ private:
     unsigned long droppedVideoFrames() override { return 0; }
     unsigned long corruptedVideoFrames() override { return 0; }
     MediaTime totalFrameDelay() override { return MediaTime::zeroTime(); }
-    GRefPtr<GstCaps> currentDemuxerCaps() const override;
     bool timeIsBuffered(float);
 
     void setMediaSourceClient(PassRefPtr<MediaSourceClientGStreamerMSE>);
@@ -366,8 +365,8 @@ class MediaSourceClientGStreamerMSE: public RefCounted<MediaSourceClientGStreame
         void abort(PassRefPtr<SourceBufferPrivateGStreamer>);
         bool append(PassRefPtr<SourceBufferPrivateGStreamer>, const unsigned char*, unsigned);
         void removedFromMediaSource(RefPtr<SourceBufferPrivateGStreamer>);
-        void flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples, AtomicString trackIDString);
-        void enqueueSample(PassRefPtr<MediaSample> sample, AtomicString trackIDString);
+        void flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples);
+        void enqueueSample(PassRefPtr<MediaSample> sample);
 
         // From our WebKitMediaSrc
         void didReceiveInitializationSegment(SourceBufferPrivateGStreamer*, const SourceBufferPrivateClient::InitializationSegment&);
