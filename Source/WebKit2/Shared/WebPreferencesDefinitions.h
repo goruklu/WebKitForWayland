@@ -146,7 +146,7 @@
     macro(InspectorStartsAttached, inspectorStartsAttached, Bool, bool, true) \
     macro(ShowsToolTipOverTruncatedText, showsToolTipOverTruncatedText, Bool, bool, false) \
     macro(MockScrollbarsEnabled, mockScrollbarsEnabled, Bool, bool, false) \
-    macro(WebAudioEnabled, webAudioEnabled, Bool, bool, false) \
+    macro(WebAudioEnabled, webAudioEnabled, Bool, bool, true) \
     macro(SuppressesIncrementalRendering, suppressesIncrementalRendering, Bool, bool, false) \
     macro(BackspaceKeyNavigationEnabled, backspaceKeyNavigationEnabled, Bool, bool, DEFAULT_BACKSPACE_KEY_NAVIGATION_ENABLED) \
     macro(CaretBrowsingEnabled, caretBrowsingEnabled, Bool, bool, false) \
