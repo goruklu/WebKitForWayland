@@ -52,11 +52,6 @@ using WebCore::LogMedia;
 typedef struct _Stream Stream;
 typedef struct _Source Source;
 
-typedef struct {
-    GstBuffer* buffer;
-    WebCore::FloatSize presentationSize;
-} PendingReceiveSample;
-
 struct _Stream
 {
     Source* parent;
@@ -65,19 +60,12 @@ struct _Stream
 
     // Might be 0, e.g. for VP8/VP9
     GstElement *parser;
-    GstPad* srcpad;
-    GstPad* demuxersrcpad;
-    GstPad* multiqueuesrcpad;
     GstCaps* caps;
-    gulong bufferProbeId;
-    gulong bufferAfterMultiqueueProbeId;
 #if ENABLE(VIDEO_TRACK)
     RefPtr<WebCore::AudioTrackPrivateGStreamer> audioTrack;
     RefPtr<WebCore::VideoTrackPrivateGStreamer> videoTrack;
 #endif
     WebCore::FloatSize presentationSize;
-    GList* pendingReceiveSample;
-    bool initSegmentAlreadyProcessed;
 
     GstPad* decryptorSrcPad;
 };
@@ -91,18 +79,10 @@ struct _Source {
     // In the future there could be several Streams per Source.
     Stream* stream;
 
-    // We expose everything when
-    // all sources are noMorePads
-    bool noMorePads;
-
     GstPad* decodebinSinkPad;
 
     // Just for identification
     WebCore::SourceBufferPrivateGStreamer* sourceBuffer;
-
-    bool segmentPending;
-    guint32 segmentSeqnum;
-    GstSegment segment;
 };
 
 enum OnSeekDataAction {
@@ -502,14 +482,8 @@ static void webKitMediaSrcLinkStreamToSrcPad(GstPad* srcpad, Stream* stream)
 
     gst_pad_set_query_function(ghostpad, webKitMediaSrcQueryWithParent);
 
-    gst_pad_set_element_private(ghostpad, stream);
-
     gst_pad_set_active(ghostpad, TRUE);
     gst_element_add_pad(GST_ELEMENT(source->parent), ghostpad);
-
-    GST_OBJECT_LOCK(stream->parent->parent);
-    stream->srcpad = ghostpad;
-    GST_OBJECT_UNLOCK(stream->parent->parent);
 
     if (source->decodebinSinkPad) {
         GST_DEBUG_OBJECT(source->parent, "A decodebin was previously used for this source, trying to reuse it.");
@@ -559,20 +533,8 @@ static gboolean releaseStream(WebKitMediaSrc* src, Stream* stream)
         stream->videoTrack = nullptr;
     }
 #endif
-    if (stream->multiqueuesrcpad)
-        gst_object_unref(stream->multiqueuesrcpad);
-
     if (stream->decryptorSrcPad)
         gst_object_unref(stream->decryptorSrcPad);
-
-    if (stream->pendingReceiveSample) {
-        for (GList* l = stream->pendingReceiveSample; l; l = l->next) {
-            PendingReceiveSample* receiveSample = static_cast<PendingReceiveSample*>(l->data);
-            gst_buffer_unref(receiveSample->buffer);
-        }
-
-        g_list_free(stream->pendingReceiveSample);
-    }
 
     int signal = -1;
     switch (stream->type) {
@@ -953,7 +915,6 @@ void PlaybackPipeline::attachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBu
     GST_OBJECT_UNLOCK(webKitMediaSrc);
 
     stream->parent = source;
-    stream->initSegmentAlreadyProcessed = false;
     stream->type = Unknown;
 
     parserBinName = g_strdup_printf("streamparser%u", padId);
@@ -1348,84 +1309,6 @@ static GstClockTime floatToGstClockTime(float time)
     timeValue.tv_usec = static_cast<glong>(roundf(microSeconds / 10000) * 10000);
     return GST_TIMEVAL_TO_TIME(timeValue);
 }
-
-#if 0
-void webkit_media_src_segment_needed(WebKitMediaSrc* src, WebCore::StreamType streamType)
-{
-    // The video sink has received reset-time and needs a new segment before
-    // new frames can be pushed. The new segment will be pushed to the
-    // multiqueue video srcpad
-    GST_OBJECT_LOCK(src);
-    MediaTime seekTime = src->priv->seekTime;
-    int flushAndReenqueueCount = src->priv->flushAndReenqueueCount;
-
-    if (seekTime.isValid() && flushAndReenqueueCount > 0) {
-        src->priv->flushAndReenqueueCount--;
-
-        if (src->priv->flushAndReenqueueCount == 0) {
-            if (src->priv->seekTime.isValid())
-                src->priv->seekTime = MediaTime::invalidTime();
-
-            GstEvent* seekEvent = src->priv->seekEvent;
-            if (seekEvent) {
-                src->priv->seekEvent = NULL;
-                gst_event_unref(seekEvent);
-            }
-        }
-    }
-    GST_OBJECT_UNLOCK(src);
-
-    if (seekTime.isValid()) {
-        // The flushAndReenqueue method will take care of pushing the segment
-        if (flushAndReenqueueCount > 0)
-            return;
-
-        GstPad* demuxersrcpad = NULL;
-
-        switch (streamType) {
-        case STREAM_TYPE_AUDIO:
-            demuxersrcpad = webkit_media_src_get_audio_pad(src, 0);
-            break;
-        case STREAM_TYPE_VIDEO:
-            demuxersrcpad = webkit_media_src_get_video_pad(src, 0);
-            break;
-        default:
-            break;
-        }
-
-        if (!demuxersrcpad)
-            return;
-
-        GstSegment* segment = gst_segment_new();
-
-        gst_segment_init(segment, GST_FORMAT_TIME);
-        segment->start = floatToGstClockTime(seekTime.toFloat());
-        segment->stop = GST_CLOCK_TIME_NONE;
-
-        gst_pad_push_event(demuxersrcpad, gst_event_new_segment(segment));
-        gst_segment_free(segment);
-    }
-}
-#endif
-
-#if 0
-static gboolean webKitMediaSrcNotifyAppendCompleteToPlayer(WebKitMediaSrc* src)
-{
-    WebCore::MediaPlayerPrivateGStreamer* mediaPlayerPrivate = 0;
-    bool isAppending;
-
-    GST_OBJECT_LOCK(src);
-    mediaPlayerPrivate = src->priv->mediaPlayerPrivate;
-    isAppending = (src->priv->ongoingAppends > 0);
-    GST_OBJECT_UNLOCK(src);
-
-    if (mediaPlayerPrivate && !isAppending)
-        mediaPlayerPrivate->notifyAppendComplete();
-
-    gst_object_unref(src);
-    return G_SOURCE_REMOVE;
-}
-#endif
 
 namespace WTF {
 template <> GRefPtr<WebKitMediaSrc> adoptGRef(WebKitMediaSrc* ptr)
