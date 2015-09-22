@@ -57,7 +57,7 @@ struct _Stream
     WebKitMediaSrc* parent;
 
     // AppSrc
-    GstElement* src;
+    GstElement* appsrc;
     GstPad* decodebinSinkPad;
     WebCore::SourceBufferPrivateGStreamer* sourceBuffer;
 
@@ -808,7 +808,7 @@ MediaSourcePrivate::AddStatus PlaybackPipeline::addSourceBuffer(RefPtr<SourceBuf
     GUniquePtr<gchar> srcName(g_strdup_printf("src%u", numberOfStreams));
     GUniquePtr<gchar> typefindName(g_strdup_printf("typefind%u", numberOfStreams));
     stream->parent = m_webKitMediaSrc.get();
-    stream->src = gst_element_factory_make("appsrc", srcName.get());
+    stream->appsrc = gst_element_factory_make("appsrc", srcName.get());
     stream->sourceBuffer = sourceBufferPrivate.get();
 
     // No track has been attached yet.
@@ -822,16 +822,16 @@ MediaSourcePrivate::AddStatus PlaybackPipeline::addSourceBuffer(RefPtr<SourceBuf
     stream->presentationSize = WebCore::FloatSize();
     stream->decryptorSrcPad = nullptr;
 
-    gst_app_src_set_callbacks(GST_APP_SRC(stream->src), &appsrcCallbacks, stream->parent, 0);
-    gst_app_src_set_emit_signals(GST_APP_SRC(stream->src), FALSE);
-    gst_app_src_set_stream_type(GST_APP_SRC(stream->src), GST_APP_STREAM_TYPE_SEEKABLE);
+    gst_app_src_set_callbacks(GST_APP_SRC(stream->appsrc), &appsrcCallbacks, stream->parent, 0);
+    gst_app_src_set_emit_signals(GST_APP_SRC(stream->appsrc), FALSE);
+    gst_app_src_set_stream_type(GST_APP_SRC(stream->appsrc), GST_APP_STREAM_TYPE_SEEKABLE);
 
     GST_OBJECT_LOCK(m_webKitMediaSrc.get());
     priv->streams = g_list_prepend(priv->streams, stream);
     GST_OBJECT_UNLOCK(m_webKitMediaSrc.get());
 
-    gst_bin_add(GST_BIN(m_webKitMediaSrc.get()), stream->src);
-    gst_element_sync_state_with_parent(stream->src);
+    gst_bin_add(GST_BIN(m_webKitMediaSrc.get()), stream->appsrc);
+    gst_element_sync_state_with_parent(stream->appsrc);
 
     return MediaSourcePrivate::Ok;
 }
@@ -854,8 +854,8 @@ void PlaybackPipeline::removeSourceBuffer(RefPtr<SourceBufferPrivateGStreamer> s
     GST_OBJECT_UNLOCK(m_webKitMediaSrc.get());
 
     if (stream) {
-        if (stream->src)
-            gst_app_src_end_of_stream(GST_APP_SRC(stream->src));
+        if (stream->appsrc)
+            gst_app_src_end_of_stream(GST_APP_SRC(stream->appsrc));
 
         if (stream->type != Invalid) {
             if (WTF::isMainThread())
@@ -892,8 +892,8 @@ void PlaybackPipeline::attachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBu
 
     g_assert(stream != 0);
 
-    gst_app_src_set_caps(GST_APP_SRC(stream->src), caps);
-    appsrccaps = gst_app_src_get_caps(GST_APP_SRC(stream->src));
+    gst_app_src_set_caps(GST_APP_SRC(stream->appsrc), caps);
+    appsrccaps = gst_app_src_get_caps(GST_APP_SRC(stream->appsrc));
     s = gst_caps_get_structure(appsrccaps, 0);
     appsrctypename = gst_structure_get_name(s);
     mediaType = appsrctypename;
@@ -920,7 +920,7 @@ void PlaybackPipeline::attachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBu
     stream->parser = gst_bin_new(parserBinName);
     g_free(parserBinName);
 
-    GST_DEBUG_OBJECT(webKitMediaSrc, "Configured track %s: appsrc=%s, padId=%u, caps=%" GST_PTR_FORMAT, trackPrivate->id().string().utf8().data(), GST_ELEMENT_NAME(stream->src), padId, appsrccaps);
+    GST_DEBUG_OBJECT(webKitMediaSrc, "Configured track %s: appsrc=%s, padId=%u, caps=%" GST_PTR_FORMAT, trackPrivate->id().string().utf8().data(), GST_ELEMENT_NAME(stream->appsrc), padId, appsrccaps);
 
 #if GST_CHECK_VERSION(1, 5, 3)
     if (gst_structure_has_name(s, "application/x-cenc")) {
@@ -1049,7 +1049,7 @@ void PlaybackPipeline::attachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBu
     gst_element_sync_state_with_parent(stream->parser);
 
     GstPad* sinkpad = gst_element_get_static_pad(stream->parser, "sink");
-    GstPad* srcpad = gst_element_get_static_pad(stream->src, "src");
+    GstPad* srcpad = gst_element_get_static_pad(stream->appsrc, "src");
     gst_pad_link(srcpad, sinkpad);
     gst_object_unref(srcpad);
     srcpad = 0;
@@ -1117,11 +1117,11 @@ void PlaybackPipeline::reattachTrack(RefPtr<SourceBufferPrivateGStreamer> source
     g_assert(stream != 0);
     g_assert(stream->type != Invalid);
 
-    GstCaps* oldAppsrccaps = gst_app_src_get_caps(GST_APP_SRC(stream->src));
+    GstCaps* oldAppsrccaps = gst_app_src_get_caps(GST_APP_SRC(stream->appsrc));
     // Now the caps change is managed by gst_appsrc_push_sample()
     // in enqueueSample() and flushAndEnqueueNonDisplayingSamples().
-    // gst_app_src_set_caps(GST_APP_SRC(stream->src), caps);
-    GstCaps* appsrccaps = gst_app_src_get_caps(GST_APP_SRC(stream->src));
+    // gst_app_src_set_caps(GST_APP_SRC(stream->appsrc), caps);
+    GstCaps* appsrccaps = gst_app_src_get_caps(GST_APP_SRC(stream->appsrc));
     const gchar* mediaType = gst_structure_get_name(gst_caps_get_structure(appsrccaps, 0));
 
     if (!gst_caps_is_equal(oldAppsrccaps, appsrccaps)) {
@@ -1184,8 +1184,8 @@ void PlaybackPipeline::markEndOfStream(MediaSourcePrivate::EndOfStreamStatus)
     GST_OBJECT_LOCK(m_webKitMediaSrc.get());
     for (l = priv->streams; l; l = l->next) {
         Stream *stream = static_cast<Stream*>(l->data);
-        if (stream->src)
-            appSrcs.append(GST_APP_SRC(stream->src));
+        if (stream->appsrc)
+            appSrcs.append(GST_APP_SRC(stream->appsrc));
     }
     GST_OBJECT_UNLOCK(m_webKitMediaSrc.get());
 
@@ -1215,7 +1215,7 @@ void PlaybackPipeline::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSa
         return;
     }
 
-    GstElement* appsrc = stream->src;
+    GstElement* appsrc = stream->appsrc;
     GST_OBJECT_UNLOCK(m_webKitMediaSrc.get());
 
     // Actually no need to flush. The seek preparations have done it for us.
@@ -1249,7 +1249,7 @@ void PlaybackPipeline::enqueueSample(PassRefPtr<MediaSample> prsample)
         return;
     }
 
-    GstElement* appsrc = stream->src;
+    GstElement* appsrc = stream->appsrc;
     GST_OBJECT_UNLOCK(m_webKitMediaSrc.get());
 
     GStreamerMediaSample* sample = static_cast<GStreamerMediaSample*>(rsample.get());
