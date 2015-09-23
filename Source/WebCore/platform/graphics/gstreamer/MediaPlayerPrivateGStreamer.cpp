@@ -62,10 +62,6 @@
 #endif
 #include <gst/audio/streamvolume.h>
 
-#if ENABLE(MEDIA_SOURCE)
-#include "MediaSource.h"
-#endif
-
 #if ENABLE(ENCRYPTED_MEDIA)
 #include "WebKitCommonEncryptionDecryptorGStreamer.h"
 #endif
@@ -174,12 +170,6 @@ static bool initializeGStreamerAndRegisterWebKitElements()
         GST_DEBUG_CATEGORY_INIT(webkit_media_player_debug, "webkitmediaplayer", 0, "WebKit media player");
         gst_element_register(0, "webkitwebsrc", GST_RANK_PRIMARY + 100, WEBKIT_TYPE_WEB_SRC);
     }
-
-#if ENABLE(MEDIA_SOURCE)
-    GRefPtr<GstElementFactory> WebKitMediaSrcFactory = gst_element_factory_find("webkitmediasrc");
-    if (!WebKitMediaSrcFactory)
-        gst_element_register(0, "webkitmediasrc", GST_RANK_PRIMARY + 100, WEBKIT_TYPE_MEDIA_SRC);
-#endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
     GRefPtr<GstElementFactory> cencDecryptorFactory = gst_element_factory_find("webkitcencdec");
@@ -1020,56 +1010,6 @@ std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateGStreamer::buffered() cons
 
     return timeRanges;
 }
-
-#if ENABLE(MEDIA_SOURCE)
-static StreamType getStreamType(GstElement* element)
-{
-    g_return_val_if_fail(GST_IS_ELEMENT(element), Unknown);
-
-    GstIterator* it;
-    GValue item = G_VALUE_INIT;
-    StreamType result = Unknown;
-
-    it = gst_element_iterate_sink_pads(element);
-
-    if (it && (gst_iterator_next(it, &item)) == GST_ITERATOR_OK) {
-        GstPad* pad = GST_PAD(g_value_get_object(&item));
-        if (pad) {
-            GstCaps* caps = gst_pad_get_current_caps(pad);
-            if (caps && GST_IS_CAPS(caps)) {
-                const GstStructure* structure = gst_caps_get_structure(caps, 0);
-                if (structure) {
-                    const gchar* mediatype = gst_structure_get_name(structure);
-                    if (mediatype) {
-                        // Look for "audio", "video", "text"
-                        switch (mediatype[0]) {
-                        case 'a':
-                            result = Audio;
-                            break;
-                        case 'v':
-                            result = Video;
-                            break;
-                        case 't':
-                            result = Text;
-                            break;
-                        default:
-                            break;
-                        }
-                    }
-                }
-                gst_caps_unref(caps);
-            }
-        }
-    }
-
-    g_value_unset(&item);
-
-    if (it)
-        gst_iterator_free(it);
-
-    return result;
-}
-#endif
 
 #if USE(DXDRM)
 DiscretixSession* MediaPlayerPrivateGStreamer::dxdrmSession() const
