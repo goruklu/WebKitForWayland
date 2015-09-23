@@ -215,7 +215,6 @@ private:
     bool loadNextLocation();
     void mediaLocationChanged(GstMessage*);
 
-    void setDownloadBuffering();
     void processBufferingStats(GstMessage*);
 #if USE(GSTREAMER_MPEGTS)
     void processMpegTsSection(GstMpegtsSection*);
@@ -243,7 +242,7 @@ private:
     RefPtr<AppendPipeline> appendPipelineByTrackId(const AtomicString& trackId);
 
 private:
-    GRefPtr<GstElement> m_source;
+    GRefPtr<GstElement> m_webKitMediaSrc;
     GRefPtr<GstElement> m_textAppSink;
     GRefPtr<GstPad> m_textAppSinkPad;
     float m_seekTime;
@@ -299,7 +298,6 @@ private:
     HashMap<AtomicString, RefPtr<InbandMetadataTextTrackPrivateGStreamer>> m_metadataTracks;
 #endif
     RefPtr<MediaSourcePrivateClient> m_mediaSource;
-    bool isMediaSource() const { return m_mediaSource && WEBKIT_IS_MEDIA_SRC(m_source.get()); }
 #if USE(GSTREAMER_GL)
     GstGLContext* m_glContext;
     GstGLDisplay* m_glDisplay;

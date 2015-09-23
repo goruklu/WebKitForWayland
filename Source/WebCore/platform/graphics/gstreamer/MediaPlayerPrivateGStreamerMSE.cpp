@@ -321,7 +321,7 @@ bool MediaPlayerPrivateGStreamerMSE::isAvailable()
 
 MediaPlayerPrivateGStreamerMSE::MediaPlayerPrivateGStreamerMSE(MediaPlayer* player)
     : MediaPlayerPrivateGStreamerBase(player)
-    , m_source(0)
+    , m_webKitMediaSrc(0)
     , m_seekTime(0)
     , m_changingRate(false)
     , m_endTime(numeric_limits<float>::infinity())
@@ -417,11 +417,11 @@ MediaPlayerPrivateGStreamerMSE::~MediaPlayerPrivateGStreamerMSE()
         g_signal_handlers_disconnect_by_func(videoSinkPad.get(), reinterpret_cast<gpointer>(mediaPlayerPrivateVideoSinkCapsChangedCallback), this);
     }
 
-    if (m_source && WEBKIT_IS_MEDIA_SRC(m_source.get())) {
-        webkit_media_src_set_mediaplayerprivate(WEBKIT_MEDIA_SRC(m_source.get()), 0);
-        g_signal_handlers_disconnect_by_func(m_source.get(), reinterpret_cast<gpointer>(mediaPlayerPrivateVideoChangedCallback), this);
-        g_signal_handlers_disconnect_by_func(m_source.get(), reinterpret_cast<gpointer>(mediaPlayerPrivateAudioChangedCallback), this);
-        g_signal_handlers_disconnect_by_func(m_source.get(), reinterpret_cast<gpointer>(mediaPlayerPrivateTextChangedCallback), this);
+    if (m_webKitMediaSrc) {
+        webkit_media_src_set_mediaplayerprivate(WEBKIT_MEDIA_SRC(m_webKitMediaSrc.get()), 0);
+        g_signal_handlers_disconnect_by_func(m_webKitMediaSrc.get(), reinterpret_cast<gpointer>(mediaPlayerPrivateVideoChangedCallback), this);
+        g_signal_handlers_disconnect_by_func(m_webKitMediaSrc.get(), reinterpret_cast<gpointer>(mediaPlayerPrivateAudioChangedCallback), this);
+        g_signal_handlers_disconnect_by_func(m_webKitMediaSrc.get(), reinterpret_cast<gpointer>(mediaPlayerPrivateTextChangedCallback), this);
     }
 
     if (m_pipeline) {
@@ -527,7 +527,6 @@ void MediaPlayerPrivateGStreamerMSE::commitLoad()
     // start providing anything useful.
     changePipelineState(GST_STATE_PAUSED);
 
-    setDownloadBuffering();
     updateStates();
 }
 
@@ -626,7 +625,6 @@ void MediaPlayerPrivateGStreamerMSE::play()
         m_isEndReached = false;
         m_delayingLoad = false;
         m_preload = MediaPlayer::Auto;
-        setDownloadBuffering();
         LOG_MEDIA_MESSAGE("Play");
     } else {
         loadingFailed(MediaPlayer::Empty);
@@ -810,7 +808,7 @@ bool MediaPlayerPrivateGStreamerMSE::doSeek(gint64 position, float rate, GstSeek
     }
 
     // This will call notifySeekNeedsData() after some time to tell that the pipeline is ready for sample enqueuing.
-    webkit_media_src_prepare_seek(WEBKIT_MEDIA_SRC(m_source.get()), time);
+    webkit_media_src_prepare_seek(WEBKIT_MEDIA_SRC(m_webKitMediaSrc.get()), time);
 
     // DEBUG
     dumpPipeline(m_pipeline.get());
@@ -872,11 +870,11 @@ void MediaPlayerPrivateGStreamerMSE::videoCapsChanged()
 
 void MediaPlayerPrivateGStreamerMSE::notifyPlayerOfVideo()
 {
-    if (!m_pipeline || !m_source)
+    if (!m_pipeline || !m_webKitMediaSrc)
         return;
 
     gint numTracks = 0;
-    GstElement* element = m_source.get();
+    GstElement* element = m_webKitMediaSrc.get();
     g_object_get(element, "n-video", &numTracks, nullptr);
 
     LOG_MEDIA_MESSAGE("Stream has %d video tracks", numTracks);
@@ -902,11 +900,11 @@ void MediaPlayerPrivateGStreamerMSE::audioChanged()
 
 void MediaPlayerPrivateGStreamerMSE::notifyPlayerOfAudio()
 {
-    if (!m_pipeline || !m_source)
+    if (!m_pipeline || !m_webKitMediaSrc)
         return;
 
     gint numTracks = 0;
-    GstElement* element = m_source.get();
+    GstElement* element = m_webKitMediaSrc.get();
     m_hasAudio = numTracks > 0;
 
     g_object_get(element, "n-audio", &numTracks, nullptr);
@@ -929,11 +927,11 @@ void MediaPlayerPrivateGStreamerMSE::textChanged()
 
 void MediaPlayerPrivateGStreamerMSE::notifyPlayerOfText()
 {
-    if (!m_pipeline || !m_source)
+    if (!m_pipeline || !m_webKitMediaSrc)
         return;
 
     gint numTracks = 0;
-    GstElement* element = m_source.get();
+    GstElement* element = m_webKitMediaSrc.get();
     g_object_get(element, "n-text", &numTracks, nullptr);
 
     LOG_MEDIA_MESSAGE("Stream has %d text tracks", numTracks);
@@ -1494,9 +1492,7 @@ float MediaPlayerPrivateGStreamerMSE::maxTimeLoaded() const
 
 bool MediaPlayerPrivateGStreamerMSE::didLoadingProgress() const
 {
-    if (!m_pipeline ||
-            (!isMediaSource() && !totalBytes())
-            || !m_mediaDuration)
+    if (!m_pipeline || (!m_mediaSource && !totalBytes()) || !m_mediaDuration)
         return false;
     float currentMaxTimeLoaded = maxTimeLoaded();
     bool didLoadingProgress = currentMaxTimeLoaded != m_maxTimeLoadedAtLastDidLoadingProgress;
@@ -1513,12 +1509,12 @@ unsigned long long MediaPlayerPrivateGStreamerMSE::totalBytes() const
     if (m_totalBytes)
         return m_totalBytes;
 
-    if (!m_source)
+    if (!m_webKitMediaSrc)
         return 0;
 
     GstFormat fmt = GST_FORMAT_BYTES;
     gint64 length = 0;
-    if (gst_element_query_duration(m_source.get(), fmt, &length)) {
+    if (gst_element_query_duration(m_webKitMediaSrc.get(), fmt, &length)) {
         INFO_MEDIA_MESSAGE("totalBytes %" G_GINT64_FORMAT, length);
         m_totalBytes = static_cast<unsigned long long>(length);
         m_isStreaming = !length;
@@ -1527,7 +1523,7 @@ unsigned long long MediaPlayerPrivateGStreamerMSE::totalBytes() const
 
     // Fall back to querying the source pads manually.
     // See also https://bugzilla.gnome.org/show_bug.cgi?id=638749
-    GstIterator* iter = gst_element_iterate_src_pads(m_source.get());
+    GstIterator* iter = gst_element_iterate_src_pads(m_webKitMediaSrc.get());
     bool done = false;
     while (!done) {
         GValue item = G_VALUE_INIT;
@@ -1562,18 +1558,18 @@ unsigned long long MediaPlayerPrivateGStreamerMSE::totalBytes() const
 
 void MediaPlayerPrivateGStreamerMSE::sourceChanged()
 {
-    m_source.clear();
-    g_object_get(m_pipeline.get(), "source", &m_source.outPtr(), nullptr);
+    m_webKitMediaSrc.clear();
+    g_object_get(m_pipeline.get(), "source", &m_webKitMediaSrc.outPtr(), nullptr);
 
-    g_assert(WEBKIT_IS_MEDIA_SRC(m_source.get()));
+    g_assert(WEBKIT_IS_MEDIA_SRC(m_webKitMediaSrc.get()));
 
-    m_playbackPipeline->setWebKitMediaSrc(WEBKIT_MEDIA_SRC(m_source.get()));
+    m_playbackPipeline->setWebKitMediaSrc(WEBKIT_MEDIA_SRC(m_webKitMediaSrc.get()));
 
     MediaSourceGStreamer::open(m_mediaSource.get(), RefPtr<MediaPlayerPrivateGStreamerMSE>(this));
-    g_signal_connect(m_source.get(), "video-changed", G_CALLBACK(mediaPlayerPrivateVideoChangedCallback), this);
-    g_signal_connect(m_source.get(), "audio-changed", G_CALLBACK(mediaPlayerPrivateAudioChangedCallback), this);
-    g_signal_connect(m_source.get(), "text-changed", G_CALLBACK(mediaPlayerPrivateTextChangedCallback), this);
-    webkit_media_src_set_mediaplayerprivate(WEBKIT_MEDIA_SRC(m_source.get()), this);
+    g_signal_connect(m_webKitMediaSrc.get(), "video-changed", G_CALLBACK(mediaPlayerPrivateVideoChangedCallback), this);
+    g_signal_connect(m_webKitMediaSrc.get(), "audio-changed", G_CALLBACK(mediaPlayerPrivateAudioChangedCallback), this);
+    g_signal_connect(m_webKitMediaSrc.get(), "text-changed", G_CALLBACK(mediaPlayerPrivateTextChangedCallback), this);
+    webkit_media_src_set_mediaplayerprivate(WEBKIT_MEDIA_SRC(m_webKitMediaSrc.get()), this);
 }
 
 void MediaPlayerPrivateGStreamerMSE::cancelLoad()
@@ -1670,7 +1666,7 @@ void MediaPlayerPrivateGStreamerMSE::updateStates()
             break;
         case GST_STATE_PAUSED:
         case GST_STATE_PLAYING:
-            if (isMediaSource() && m_seeking && !timeIsBuffered(m_seekTime)) {
+            if (m_seeking && !timeIsBuffered(m_seekTime)) {
                 m_readyState = MediaPlayer::HaveMetadata;
                 // TODO: NetworkState?
                 LOG_MEDIA_MESSAGE("m_readyState=%s", dumpReadyState(m_readyState));
@@ -1744,7 +1740,6 @@ void MediaPlayerPrivateGStreamerMSE::updateStates()
 
         // Live pipelines go in PAUSED without prerolling.
         m_isStreaming = true;
-        setDownloadBuffering();
 
         if (state == GST_STATE_READY) {
             m_readyState = MediaPlayer::HaveNothing;
@@ -1782,10 +1777,7 @@ void MediaPlayerPrivateGStreamerMSE::updateStates()
 
     if (getStateResult == GST_STATE_CHANGE_SUCCESS && state >= GST_STATE_PAUSED) {
         updatePlaybackRate();
-        if (m_seekIsPending
-            && (!isMediaSource()
-                || (isMediaSource() && timeIsBuffered(m_seekTime)))
-            ) {
+        if (m_seekIsPending && timeIsBuffered(m_seekTime)) {
             LOG_MEDIA_MESSAGE("[Seek] committing pending seek to %f", m_seekTime);
             m_seekIsPending = false;
             m_seeking = doSeek(toGstClockTime(m_seekTime), m_player->rate(), static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE));
@@ -1800,7 +1792,7 @@ void MediaPlayerPrivateGStreamerMSE::updateStates()
 
 bool MediaPlayerPrivateGStreamerMSE::timeIsBuffered(float time)
 {
-    bool result = isMediaSource() && m_mediaSource->buffered()->contain(MediaTime::createWithFloat(time));
+    bool result = m_mediaSource && m_mediaSource->buffered()->contain(MediaTime::createWithFloat(time));
     LOG_MEDIA_MESSAGE("Time %f buffered? %s", time, result ? "aye" : "nope");
     return result;
 }
@@ -2248,42 +2240,12 @@ MediaPlayer::SupportsType MediaPlayerPrivateGStreamerMSE::supportsType(const Med
     return result;
 }
 
-void MediaPlayerPrivateGStreamerMSE::setDownloadBuffering()
-{
-    if (!m_pipeline)
-        return;
-
-    if (isMediaSource())
-        return;
-
-    unsigned flags;
-    g_object_get(m_pipeline.get(), "flags", &flags, nullptr);
-
-    unsigned flagDownload = getGstPlayFlag("download");
-
-    // We don't want to stop downloading if we already started it.
-    if (flags & flagDownload && m_readyState > MediaPlayer::HaveNothing && !m_resetPipeline)
-        return;
-
-    bool shouldDownload = !isLiveStream() && m_preload == MediaPlayer::Auto;
-    if (shouldDownload) {
-        LOG_MEDIA_MESSAGE("Enabling on-disk buffering");
-        g_object_set(m_pipeline.get(), "flags", flags | flagDownload, nullptr);
-        m_fillTimer.startRepeating(0.2);
-    } else {
-        LOG_MEDIA_MESSAGE("Disabling on-disk buffering");
-        g_object_set(m_pipeline.get(), "flags", flags & ~flagDownload, nullptr);
-        m_fillTimer.stop();
-    }
-}
-
 void MediaPlayerPrivateGStreamerMSE::setPreload(MediaPlayer::Preload preload)
 {
     if (preload == MediaPlayer::Auto && isLiveStream())
         return;
 
     m_preload = preload;
-    setDownloadBuffering();
 
     if (m_delayingLoad && m_preload != MediaPlayer::None) {
         m_delayingLoad = false;
@@ -2450,8 +2412,8 @@ void MediaPlayerPrivateGStreamerMSE::simulateAudioInterruption()
 
 bool MediaPlayerPrivateGStreamerMSE::didPassCORSAccessCheck() const
 {
-    if (WEBKIT_IS_WEB_SRC(m_source.get()))
-        return webKitSrcPassedCORSAccessCheck(WEBKIT_WEB_SRC(m_source.get()));
+    if (WEBKIT_IS_WEB_SRC(m_webKitMediaSrc.get()))
+        return webKitSrcPassedCORSAccessCheck(WEBKIT_WEB_SRC(m_webKitMediaSrc.get()));
     return false;
 }
 
@@ -2776,7 +2738,9 @@ gint AppendPipeline::id()
         m_id = totalText;
         break;
     case Unknown:
-        LOG_MEDIA_MESSAGE("Trying to get id for a pipeline of Unknown type");
+        FALLTHROUGH;
+    case Invalid:
+        LOG_MEDIA_MESSAGE("Trying to get id for a pipeline of Unknown/Invalid type");
         g_assert_not_reached();
         break;
     }
@@ -3376,7 +3340,7 @@ void MediaSourceClientGStreamerMSE::didReceiveAllPendingSamples(SourceBufferPriv
 
 GRefPtr<WebKitMediaSrc> MediaSourceClientGStreamerMSE::webKitMediaSrc()
 {
-    WebKitMediaSrc* source = WEBKIT_MEDIA_SRC(m_playerPrivate->m_source.get());
+    WebKitMediaSrc* source = WEBKIT_MEDIA_SRC(m_playerPrivate->m_webKitMediaSrc.get());
 
     ASSERT(WEBKIT_IS_MEDIA_SRC(source));
 
