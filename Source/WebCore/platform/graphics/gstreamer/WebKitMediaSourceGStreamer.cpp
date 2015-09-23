@@ -94,6 +94,7 @@ struct _WebKitMediaSrcPrivate
         g_cond_clear(&streamCondition);
     }
 
+    // Used to coordinate the release of Stream track info.
     GMutex streamMutex;
     GCond streamCondition;
     GSourceWrap::Dynamic timeoutSource;
@@ -154,8 +155,10 @@ static void webKitMediaSrcGetProperty(GObject*, guint propertyId, GValue*, GPara
 static GstStateChangeReturn webKitMediaSrcChangeState(GstElement*, GstStateChange);
 static gboolean webKitMediaSrcQueryWithParent(GstPad*, GstObject*, GstQuery*);
 
-inline static AtomicString getStreamTrackId(Stream* stream);
+inline static AtomicString getStreamTrackId(Stream*);
 static GstClockTime floatToGstClockTime(float);
+static gboolean freeStreamLater(Stream*);
+static gboolean releaseStreamTrackInfo(WebKitMediaSrc*, Stream*);
 
 static void app_src_need_data (GstAppSrc *src, guint length, gpointer user_data);
 static void app_src_enough_data (GstAppSrc *src, gpointer user_data);
@@ -245,7 +248,19 @@ static void webKitMediaSrcFinalize(GObject* object)
     WebKitMediaSrc* src = WEBKIT_MEDIA_SRC(object);
     WebKitMediaSrcPrivate* priv = src->priv;
 
-    // TODO: Free sources
+    g_assert(WTF::isMainThread());
+
+    for (GList* streams = src->priv->streams; streams; streams = streams->next) {
+        Stream* stream = static_cast<Stream*>(streams->data);
+        streams->data = 0;
+        if (stream->type != WebCore::Invalid) {
+            releaseStreamTrackInfo(src, stream);
+        }
+        g_free(stream);
+    }
+    g_list_free(src->priv->streams);
+    src->priv->streams = 0;
+
     g_free(priv->location);
 
     priv->seekTime = MediaTime::invalidTime();
@@ -515,12 +530,10 @@ static gboolean releaseStreamTrackInfo(WebKitMediaSrc* src, Stream* stream)
         stream->caps = nullptr;
     }
 #if ENABLE(VIDEO_TRACK)
-    if (stream->audioTrack) {
+    if (stream->audioTrack)
         stream->audioTrack = nullptr;
-    }
-    if (stream->videoTrack) {
+    if (stream->videoTrack)
         stream->videoTrack = nullptr;
-    }
 #endif
     if (stream->decryptorSrcPad) {
         gst_object_unref(stream->decryptorSrcPad);
@@ -848,6 +861,7 @@ void PlaybackPipeline::removeSourceBuffer(RefPtr<SourceBufferPrivateGStreamer> s
         Stream *tmp = static_cast<Stream*>(l->data);
         if (tmp->sourceBuffer == sourceBufferPrivate.get()) {
             stream = tmp;
+            priv->streams = g_list_remove(priv->streams, stream);
             break;
         }
     }
