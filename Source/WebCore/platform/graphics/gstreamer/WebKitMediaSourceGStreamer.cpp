@@ -104,7 +104,6 @@ struct _WebKitMediaSrcPrivate
     int nAudio;
     int nVideo;
     int nText;
-    GstClockTime duration;
     bool asyncStart;
     bool allTracksConfigured;
     unsigned numberOfPads;
@@ -375,8 +374,10 @@ static gboolean webKitMediaSrcQueryWithParent(GstPad* pad, GstObject* parent, Gs
 
         GST_DEBUG_OBJECT(src, "duration query in format %s", gst_format_get_name(format));
         GST_OBJECT_LOCK(src);
-        if ((format == GST_FORMAT_TIME) && src && src->priv && (src->priv->duration > 0)) {
-            gst_query_set_duration(query, format, src->priv->duration);
+        float duration;
+        if (format == GST_FORMAT_TIME && src->priv && src->priv->mediaPlayerPrivate && ((duration = src->priv->mediaPlayerPrivate->duration()) > 0)) {
+            gst_query_set_duration(query, format, floatToGstClockTime(duration));
+            GST_DEBUG_OBJECT(src, "Answering: duration=%" GST_TIME_FORMAT, GST_TIME_ARGS(floatToGstClockTime(duration)));
             result = TRUE;
         }
         GST_OBJECT_UNLOCK(src);
@@ -1161,6 +1162,12 @@ void PlaybackPipeline::reattachTrack(RefPtr<SourceBufferPrivateGStreamer> source
 
     if (signal != -1)
         g_signal_emit(G_OBJECT(stream->parent), webkit_media_src_signals[signal], 0, NULL);
+}
+
+void PlaybackPipeline::notifyDurationChanged()
+{
+    gst_element_post_message(GST_ELEMENT(m_webKitMediaSrc.get()), gst_message_new_duration_changed(GST_OBJECT(m_webKitMediaSrc.get())));
+    // WebKitMediaSrc will ask MediaPlayerPrivateGStreamerMSE for the new duration later, when somebody asks for it.
 }
 
 void PlaybackPipeline::markEndOfStream(MediaSourcePrivate::EndOfStreamStatus)

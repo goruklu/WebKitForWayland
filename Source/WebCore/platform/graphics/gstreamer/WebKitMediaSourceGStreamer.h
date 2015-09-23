@@ -99,6 +99,7 @@ class PlaybackPipeline: public RefCounted<PlaybackPipeline> {
         void removeSourceBuffer(RefPtr<SourceBufferPrivateGStreamer>);
         void attachTrack(RefPtr<SourceBufferPrivateGStreamer>, RefPtr<TrackPrivateBase>, GstCaps*);
         void reattachTrack(RefPtr<SourceBufferPrivateGStreamer>, RefPtr<TrackPrivateBase>, GstCaps*);
+        void notifyDurationChanged();
 
         // From MediaSourceGStreamer
         void markEndOfStream(MediaSourcePrivate::EndOfStreamStatus);

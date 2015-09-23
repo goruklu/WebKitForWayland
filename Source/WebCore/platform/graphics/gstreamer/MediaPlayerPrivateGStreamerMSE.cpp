@@ -1995,8 +1995,9 @@ void MediaPlayerPrivateGStreamerMSE::durationChanged()
     // duration was 0 because that case is already handled by the
     // HTMLMediaElement.
     if (m_mediaDuration != previousDuration) {
-        LOG_MEDIA_MESSAGE("Notifying player");
+        LOG_MEDIA_MESSAGE("Notifying player and WebKitMediaSrc");
         m_player->durationChanged();
+        m_playbackPipeline->notifyDurationChanged();
     }
 }
 
@@ -3232,6 +3233,7 @@ MediaSourceClientGStreamerMSE::MediaSourceClientGStreamerMSE(PassRefPtr<MediaPla
     , m_playerPrivate(playerPrivate)
     , m_duration(MediaTime::invalidTime())
 {
+    m_playerPrivate->setMediaSourceClient(RefPtr<MediaSourceClientGStreamerMSE>(this));
 }
 
 MediaSourceClientGStreamerMSE::~MediaSourceClientGStreamerMSE()
@@ -3244,8 +3246,6 @@ MediaSourcePrivate::AddStatus MediaSourceClientGStreamerMSE::addSourceBuffer(Ref
     RefPtr<AppendPipeline> ap = adoptRef(new AppendPipeline(this, sourceBufferPrivate, m_playerPrivate.get()));
     LOG_MEDIA_MESSAGE("this=%p sourceBuffer=%p ap=%p", this, sourceBufferPrivate.get(), ap.get());
     m_playerPrivate->m_appendPipelinesMap.add(sourceBufferPrivate, ap);
-    if (!m_playerPrivate->mediaSourceClient())
-        m_playerPrivate->setMediaSourceClient(ap->mediaSourceClient());
 
     ASSERT(m_playerPrivate->m_playbackPipeline);
 
@@ -3266,9 +3266,6 @@ void MediaSourceClientGStreamerMSE::durationChanged(const MediaTime& duration)
 
     m_duration = duration;
     m_playerPrivate->durationChanged();
-
-    // TODO: Maybe convert to GstClockTime and emit duration changed on the appsrc, like this:
-    // gst_element_post_message(GST_ELEMENT(m_src.get()), gst_message_new_duration_changed(GST_OBJECT(m_src.get())));
 }
 
 void MediaSourceClientGStreamerMSE::abort(PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate)
@@ -3303,8 +3300,6 @@ void MediaSourceClientGStreamerMSE::removedFromMediaSource(RefPtr<SourceBufferPr
     RefPtr<AppendPipeline> ap = m_playerPrivate->m_appendPipelinesMap.get(sourceBufferPrivate);
     m_playerPrivate->m_appendPipelinesMap.remove(sourceBufferPrivate);
     gst_element_set_state (ap->pipeline(), GST_STATE_NULL);
-    if (m_playerPrivate->m_appendPipelinesMap.isEmpty())
-        m_playerPrivate->setMediaSourceClient(RefPtr<MediaSourceClientGStreamerMSE>(this));
     // AppendPipeline destructor will take care of cleaning up when appropriate.
 
     ASSERT(m_playerPrivate->m_playbackPipeline);
