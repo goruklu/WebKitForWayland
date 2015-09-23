@@ -105,13 +105,11 @@ struct _WebKitMediaSrcPrivate
     int nVideo;
     int nText;
     GstClockTime duration;
-    bool haveAppsrc;
     bool asyncStart;
     bool allTracksConfigured;
     unsigned numberOfPads;
 
     MediaTime seekTime;
-    GstEvent* seekEvent;
 
     // On seek, we wait for all the seekDatas, then for all the needDatas, and then run the nextAction.
     OnSeekDataAction appSrcSeekDataNextAction;
@@ -119,7 +117,6 @@ struct _WebKitMediaSrcPrivate
     int appSrcNeedDataCount;
 
     WebCore::MediaPlayerPrivateGStreamerMSE* mediaPlayerPrivate;
-    WebCore::PlaybackPipeline* mediaSourceClient;
 };
 
 enum
@@ -264,11 +261,6 @@ static void webKitMediaSrcFinalize(GObject* object)
     g_free(priv->location);
 
     priv->seekTime = MediaTime::invalidTime();
-
-    if (priv->seekEvent) {
-        gst_event_unref(priv->seekEvent);
-        priv->seekEvent = 0;
-    }
 
     if (priv->mediaPlayerPrivate)
         priv->mediaPlayerPrivate = 0;
@@ -774,8 +766,6 @@ static gboolean app_src_seek_data (GstAppSrc *src, guint64 offset, gpointer user
 
 namespace WebCore {
 
-// ########### TODO: Use MediaSourceClientGStreamerMSE
-
 PassRefPtr<PlaybackPipeline> PlaybackPipeline::create()
 {
     return adoptRef(new PlaybackPipeline());
@@ -794,7 +784,6 @@ void PlaybackPipeline::setWebKitMediaSrc(WebKitMediaSrc* webKitMediaSrc)
 {
     LOG_MEDIA_MESSAGE("webKitMediaSrc=%p", webKitMediaSrc);
     m_webKitMediaSrc = adoptGRef(static_cast<WebKitMediaSrc*>(gst_object_ref(webKitMediaSrc)));
-    m_webKitMediaSrc->priv->mediaSourceClient = this;
 }
 
 WebKitMediaSrc* PlaybackPipeline::webKitMediaSrc()
