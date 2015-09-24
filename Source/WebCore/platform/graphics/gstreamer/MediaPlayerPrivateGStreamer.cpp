@@ -225,7 +225,6 @@ MediaPlayerPrivateGStreamer::MediaPlayerPrivateGStreamer(MediaPlayer* player)
 #endif
     , m_requestedState(GST_STATE_VOID_PENDING)
     , m_pendingAsyncOperations(nullptr)
-    , m_seekCompleted(true)
 {
 }
 
@@ -529,7 +528,7 @@ float MediaPlayerPrivateGStreamer::currentTime() const
         return 0.0f;
 
     if (m_seeking)
-         return m_seekTime;
+        return m_seekTime;
 
     // Workaround for
     // https://bugzilla.gnome.org/show_bug.cgi?id=639941 In GStreamer
@@ -577,14 +576,7 @@ void MediaPlayerPrivateGStreamer::seek(float time)
         return;
     }
 
-    if (getStateResult == GST_STATE_CHANGE_ASYNC || state < GST_STATE_PAUSED
-            || m_isEndReached) {
-        const char* reason = "Unknown reason";
-        if (getStateResult == GST_STATE_CHANGE_ASYNC) reason = "In async change";
-        else if (state < GST_STATE_PAUSED) reason = "State less than PAUSED";
-        else if (m_isEndReached) reason = "End reached";
-
-        LOG_MEDIA_MESSAGE("[Seek] delaying because: %s", reason);
+    if (getStateResult == GST_STATE_CHANGE_ASYNC || state < GST_STATE_PAUSED || m_isEndReached) {
         m_seekIsPending = true;
         if (m_isEndReached) {
             LOG_MEDIA_MESSAGE("[Seek] reset pipeline");
@@ -593,7 +585,6 @@ void MediaPlayerPrivateGStreamer::seek(float time)
                 loadingFailed(MediaPlayer::Empty);
         }
     } else {
-        LOG_MEDIA_MESSAGE("[Seek] now possible");
         // We can seek now.
         if (!doSeek(clockTime, m_player->rate(), static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE))) {
             LOG_MEDIA_MESSAGE("[Seek] seeking to %f failed", time);
@@ -625,8 +616,6 @@ bool MediaPlayerPrivateGStreamer::doSeek(gint64 position, float rate, GstSeekFla
 
     if (!rate)
         rate = 1.0;
-
-    LOG_MEDIA_MESSAGE("Actual seek to %" GST_TIME_FORMAT ", end time:  %" GST_TIME_FORMAT ", rate: %f", GST_TIME_ARGS(startTime), GST_TIME_ARGS(endTime), rate);
 
     if (!gst_element_seek(m_pipeline.get(), rate, GST_FORMAT_TIME, seekType,
         GST_SEEK_TYPE_SET, startTime, GST_SEEK_TYPE_SET, endTime))
@@ -695,7 +684,7 @@ bool MediaPlayerPrivateGStreamer::paused() const
 
 bool MediaPlayerPrivateGStreamer::seeking() const
 {
-    return m_seeking && !m_seekCompleted;
+    return m_seeking;
 }
 
 void MediaPlayerPrivateGStreamer::videoChanged()
@@ -1364,9 +1353,7 @@ float MediaPlayerPrivateGStreamer::maxTimeLoaded() const
 
 bool MediaPlayerPrivateGStreamer::didLoadingProgress() const
 {
-    if (!m_pipeline ||
-            !totalBytes()
-            || !m_mediaDuration)
+    if (!m_pipeline || !totalBytes() || !m_mediaDuration)
         return false;
     float currentMaxTimeLoaded = maxTimeLoaded();
     bool didLoadingProgress = currentMaxTimeLoaded != m_maxTimeLoadedAtLastDidLoadingProgress;

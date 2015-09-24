@@ -74,10 +74,11 @@ public:
     bool hasVideo() const override { return m_hasVideo; }
     bool hasAudio() const override { return m_hasAudio; }
 
+    void load(const String &url) override;
 #if ENABLE(MEDIA_SOURCE)
     void load(const String& url, MediaSourcePrivateClient* mediaSource) override;
 #endif
-    void load(const String &url) override;
+
 #if ENABLE(MEDIA_STREAM)
     void load(MediaStreamPrivate&) override;
 #endif
@@ -249,7 +250,6 @@ private:
 #endif
     Mutex m_pendingAsyncOperationsLock;
     GList* m_pendingAsyncOperations;
-    bool m_seekCompleted;
 };
 }
 
