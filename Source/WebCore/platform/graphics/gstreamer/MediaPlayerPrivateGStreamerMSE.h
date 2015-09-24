@@ -46,10 +46,6 @@
 #include "MediaSourceGStreamer.h"
 #include "WebKitMediaSourceGStreamer.h"
 
-#if ENABLE(ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA_V2)
-#include <wtf/threads/BinarySemaphore.h>
-#endif
-
 typedef struct _GstBuffer GstBuffer;
 typedef struct _GstMessage GstMessage;
 typedef struct _GstElement GstElement;
@@ -60,10 +56,6 @@ namespace WebCore {
 #if ENABLE(WEB_AUDIO)
 class AudioSourceProvider;
 class AudioSourceProviderGStreamer;
-#endif
-
-#if ENABLE(ENCRYPTED_MEDIA) && USE(DXDRM)
-class DiscretixSession;
 #endif
 
 class AudioTrackPrivateGStreamer;
@@ -162,23 +154,7 @@ public:
     AudioSourceProvider* audioSourceProvider() override { return reinterpret_cast<AudioSourceProvider*>(m_audioSourceProvider.get()); }
 #endif
 
-#if ENABLE(ENCRYPTED_MEDIA)
-    MediaPlayer::MediaKeyException addKey(const String&, const unsigned char*, unsigned, const unsigned char*, unsigned, const String&);
-    MediaPlayer::MediaKeyException generateKeyRequest(const String&, const unsigned char*, unsigned);
-    MediaPlayer::MediaKeyException cancelKeyRequest(const String&, const String&);
-    void needKey(const String&, const String&, const unsigned char*, unsigned);
-#endif
-#if ENABLE(ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA_V2)
-    void signalDRM();
-#endif
-
     bool isLiveStream() const override { return m_isStreaming; }
-
-#if ENABLE(ENCRYPTED_MEDIA_V2)
-    void needKey(RefPtr<Uint8Array> initData);
-    void setCDMSession(CDMSession*);
-    void keyAdded();
-#endif
 
     void trackDetected(RefPtr<AppendPipeline>, RefPtr<WebCore::TrackPrivateBase> oldTrack, RefPtr<WebCore::TrackPrivateBase> newTrack);
     void notifySeekNeedsData(const MediaTime& seekTime);
@@ -191,18 +167,8 @@ private:
     static MediaPlayer::SupportsType supportsType(const MediaEngineSupportParameters&);
 
     static bool isAvailable();
-    static bool supportsKeySystem(const String& keySystem, const String& mimeType);
 
     GstElement* createAudioSink() override;
-
-#if ENABLE(ENCRYPTED_MEDIA_V2)
-    std::unique_ptr<CDMSession> createSession(const String&);
-    CDMSession* m_cdmSession;
-#endif
-
-#if ENABLE(ENCRYPTED_MEDIA) && USE(DXDRM)
-    DiscretixSession* m_dxdrmSession;
-#endif
 
     float playbackPosition() const;
 
@@ -301,9 +267,6 @@ private:
 #if USE(GSTREAMER_GL)
     GstGLContext* m_glContext;
     GstGLDisplay* m_glDisplay;
-#endif
-#if ENABLE(ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA_V2)
-    BinarySemaphore m_drmKeySemaphore;
 #endif
     Mutex m_pendingAsyncOperationsLock;
     GList* m_pendingAsyncOperations;

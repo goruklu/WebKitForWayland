@@ -62,10 +62,6 @@
 #endif
 #include <gst/audio/streamvolume.h>
 
-#if ENABLE(ENCRYPTED_MEDIA)
-#include "WebKitCommonEncryptionDecryptorGStreamer.h"
-#endif
-
 #if ENABLE(WEB_AUDIO)
 #include "AudioSourceProviderGStreamer.h"
 #endif
@@ -158,7 +154,7 @@ void MediaPlayerPrivateGStreamer::registerMediaEngine(MediaEngineRegistrar regis
             getSupportedTypes, supportsType, 0, 0, 0, supportsKeySystem);
 }
 
-static bool initializeGStreamerAndRegisterWebKitElements()
+bool initializeGStreamerAndRegisterWebKitElements()
 {
     if (!initializeGStreamer())
         return false;
@@ -170,18 +166,6 @@ static bool initializeGStreamerAndRegisterWebKitElements()
         GST_DEBUG_CATEGORY_INIT(webkit_media_player_debug, "webkitmediaplayer", 0, "WebKit media player");
         gst_element_register(0, "webkitwebsrc", GST_RANK_PRIMARY + 100, WEBKIT_TYPE_WEB_SRC);
     }
-
-#if ENABLE(ENCRYPTED_MEDIA)
-    GRefPtr<GstElementFactory> cencDecryptorFactory = gst_element_factory_find("webkitcencdec");
-    if (!cencDecryptorFactory)
-        gst_element_register(0, "webkitcencdec", GST_RANK_PRIMARY + 100, WEBKIT_TYPE_MEDIA_CENC_DECRYPT);
-#endif
-
-#if USE(DXDRM)
-    GRefPtr<GstElementFactory> playReadyDecryptorFactory = gst_element_factory_find("webkitplayreadydec");
-    if (!playReadyDecryptorFactory)
-        gst_element_register(0, "webkitplayreadydec", GST_RANK_PRIMARY + 100, WEBKIT_TYPE_MEDIA_PLAYREADY_DECRYPT);
-#endif
 
     return true;
 }
@@ -1010,28 +994,6 @@ std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateGStreamer::buffered() cons
 
     return timeRanges;
 }
-
-#if USE(DXDRM)
-DiscretixSession* MediaPlayerPrivateGStreamer::dxdrmSession() const
-{
-    DiscretixSession* session = nullptr;
-#if ENABLE(ENCRYPTED_MEDIA)
-    session = m_dxdrmSession;
-#elif ENABLE(ENCRYPTED_MEDIA_V2)
-    if (m_cdmSession) {
-        CDMPRSessionGStreamer* cdmSession = static_cast<CDMPRSessionGStreamer*>(m_cdmSession);
-        session = static_cast<DiscretixSession*>(cdmSession);
-    }
-#endif
-    return session;
-}
-
-void MediaPlayerPrivateGStreamer::emitSession()
-{
-    gst_element_send_event(m_pipeline.get(), gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB,
-        gst_structure_new("dxdrm-session", "session", G_TYPE_POINTER, dxdrmSession(), nullptr)));
-}
-#endif
 
 void MediaPlayerPrivateGStreamer::handleSyncMessage(GstMessage* message)
 {
