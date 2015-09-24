@@ -1442,7 +1442,8 @@ void MediaPlayerPrivateGStreamerMSE::sourceChanged()
 
     m_playbackPipeline->setWebKitMediaSrc(WEBKIT_MEDIA_SRC(m_webKitMediaSrc.get()));
 
-    MediaSourceGStreamer::open(m_mediaSource.get(), RefPtr<MediaPlayerPrivateGStreamerMSE>(this));
+    RefPtr<MediaPlayerPrivateGStreamerMSE> player = adoptRef(this);
+    MediaSourceGStreamer::open(m_mediaSource.get(), player.release());
     g_signal_connect(m_webKitMediaSrc.get(), "video-changed", G_CALLBACK(mediaPlayerPrivateVideoChangedCallback), this);
     g_signal_connect(m_webKitMediaSrc.get(), "audio-changed", G_CALLBACK(mediaPlayerPrivateAudioChangedCallback), this);
     g_signal_connect(m_webKitMediaSrc.get(), "text-changed", G_CALLBACK(mediaPlayerPrivateTextChangedCallback), this);
@@ -1671,7 +1672,8 @@ bool MediaPlayerPrivateGStreamerMSE::timeIsBuffered(float time)
 
 void MediaPlayerPrivateGStreamerMSE::setMediaSourceClient(PassRefPtr<MediaSourceClientGStreamerMSE> mediaSourceClient)
 {
-    m_mediaSourceClient = mediaSourceClient;
+    RefPtr<MediaSourceClientGStreamerMSE> client = mediaSourceClient;
+    m_mediaSourceClient = client;
 }
 
 RefPtr<MediaSourceClientGStreamerMSE> MediaPlayerPrivateGStreamerMSE::mediaSourceClient()
@@ -2943,10 +2945,12 @@ PassRefPtr<MediaSourceClientGStreamerMSE> MediaSourceClientGStreamerMSE::create(
 
 MediaSourceClientGStreamerMSE::MediaSourceClientGStreamerMSE(PassRefPtr<MediaPlayerPrivateGStreamerMSE> playerPrivate)
     : RefCounted<MediaSourceClientGStreamerMSE>()
-    , m_playerPrivate(playerPrivate)
     , m_duration(MediaTime::invalidTime())
 {
-    m_playerPrivate->setMediaSourceClient(RefPtr<MediaSourceClientGStreamerMSE>(this));
+    RefPtr<MediaPlayerPrivateGStreamerMSE> player = playerPrivate;
+    m_playerPrivate = player;
+    RefPtr<MediaSourceClientGStreamerMSE> client = adoptRef(this);
+    m_playerPrivate->setMediaSourceClient(client.release());
 }
 
 MediaSourceClientGStreamerMSE::~MediaSourceClientGStreamerMSE()

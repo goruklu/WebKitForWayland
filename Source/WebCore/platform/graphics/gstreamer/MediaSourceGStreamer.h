@@ -52,7 +52,7 @@ class PlatformTimeRanges;
 // FIXME: Should this be called MediaSourcePrivateGStreamer?
 class MediaSourceGStreamer : public MediaSourcePrivate {
 public:
-    static void open(MediaSourcePrivateClient*, RefPtr<MediaPlayerPrivateGStreamerMSE>);
+    static void open(MediaSourcePrivateClient*, PassRefPtr<MediaPlayerPrivateGStreamerMSE>);
     virtual ~MediaSourceGStreamer();
 
     MediaSourceClientGStreamerMSE& client() const { return *m_client; }
