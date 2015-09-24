@@ -175,7 +175,7 @@ private:
     // this field.
     bool m_abortPending;
 
-    StreamType m_streamType;
+    WebCore::MediaSourceStreamTypeGStreamer m_streamType;
     RefPtr<WebCore::TrackPrivateBase> m_track;
 };
 
@@ -2624,6 +2624,8 @@ void AppendPipeline::updatePresentationSize(GstCaps* demuxersrcpadcaps)
     GstVideoInfo info;
     bool sizeConfigured = false;
 
+    m_streamType = WebCore::MediaSourceStreamTypeGStreamer::Unknown;
+
 #if GST_CHECK_VERSION(1, 5, 3)
     if (gst_structure_has_name(s, "application/x-cenc")) {
         const gchar* originalMediaType = gst_structure_get_string(s, "original-media-type");
@@ -2642,8 +2644,14 @@ void AppendPipeline::updatePresentationSize(GstCaps* demuxersrcpadcaps)
             }
 
             m_presentationSize = WebCore::FloatSize(width, finalHeight);
-        } else
+            m_streamType = WebCore::MediaSourceStreamTypeGStreamer::Video;
+        } else {
             m_presentationSize = WebCore::FloatSize();
+            if (g_str_has_prefix(originalMediaType, "audio/"))
+                m_streamType = WebCore::MediaSourceStreamTypeGStreamer::Audio;
+            else if (g_str_has_prefix(originalMediaType, "text/"))
+                m_streamType = WebCore::MediaSourceStreamTypeGStreamer::Text;
+        }
         sizeConfigured = true;
     }
 #endif
@@ -2656,8 +2664,14 @@ void AppendPipeline::updatePresentationSize(GstCaps* demuxersrcpadcaps)
             height = info.height * ((float) info.par_d / (float) info.par_n);
 
             m_presentationSize = WebCore::FloatSize(width, height);
-        } else
+            m_streamType = WebCore::MediaSourceStreamTypeGStreamer::Video;
+        } else {
             m_presentationSize = WebCore::FloatSize();
+            if (g_str_has_prefix(structureName, "audio/"))
+                m_streamType = WebCore::MediaSourceStreamTypeGStreamer::Audio;
+            else if (g_str_has_prefix(structureName, "text/"))
+                m_streamType = WebCore::MediaSourceStreamTypeGStreamer::Text;
+        }
     }
 }
 
@@ -2665,6 +2679,7 @@ void AppendPipeline::appSinkCapsChanged()
 {
     LOG_MEDIA_MESSAGE("%s", "");
 
+    // TODO: Use RefPtr
     GstPad* appsinkpad = gst_element_get_static_pad(m_appsink, "sink");
     GstCaps* caps = gst_pad_get_current_caps(GST_PAD(appsinkpad));
 
@@ -2679,31 +2694,26 @@ void AppendPipeline::appSinkCapsChanged()
         return;
     }
 
-    updatePresentationSize(gst_caps_ref(caps));
-
     RefPtr<WebCore::TrackPrivateBase> oldTrack = m_track;
-    GstStructure* s = gst_caps_get_structure(m_demuxersrcpadcaps, 0);
-    const gchar* mediaType = gst_structure_get_name(s);
     bool isData;
 
-    if (g_str_has_prefix(mediaType, "audio")) {
+    updatePresentationSize(gst_caps_ref(caps));
+    switch (m_streamType) {
+    case WebCore::MediaSourceStreamTypeGStreamer::Audio:
+    case WebCore::MediaSourceStreamTypeGStreamer::Video:
         isData = true;
-        m_streamType = Audio;
         m_track = WebCore::AudioTrackPrivateGStreamer::create(m_playerPrivate->pipeline(), id(), appsinkpad);
-    } else if (g_str_has_prefix(mediaType, "video")) {
+        break;
+    case WebCore::MediaSourceStreamTypeGStreamer::Text:
         isData = true;
-        m_streamType = Video;
-        m_track = WebCore::VideoTrackPrivateGStreamer::create(m_playerPrivate->pipeline(), id(), appsinkpad);
-    } else if (g_str_has_prefix(mediaType, "text")) {
-        isData = true;
-        m_streamType = Text;
         m_track = WebCore::InbandTextTrackPrivateGStreamer::create(id(), appsinkpad);
-    } else {
+        break;
+    default:
         // No useful data, but notify anyway to complete the append operation (webKitMediaSrcLastSampleTimeout is cancelled and won't notify in this case)
-        // TODO: EME uses its own special types.
         LOG_MEDIA_MESSAGE("(no data)");
         isData = false;
         m_mediaSourceClient->didReceiveAllPendingSamples(m_sourceBufferPrivate.get());
+        break;
     }
 
     if (isData) {

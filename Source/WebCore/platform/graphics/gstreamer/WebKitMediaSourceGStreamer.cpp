@@ -62,7 +62,7 @@ struct _Stream
     WebCore::SourceBufferPrivateGStreamer* sourceBuffer;
 
     // Fields filled when the track is attached.
-    WebCore::StreamType type;
+    WebCore::MediaSourceStreamTypeGStreamer type;
     // Might be 0, e.g. for VP8/VP9
     GstElement *parser;
     GstCaps* caps;

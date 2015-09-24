@@ -36,7 +36,7 @@ namespace WebCore {
 
 class MediaPlayerPrivateGStreamerMSE;
 
-enum StreamType { Invalid, Unknown, Audio, Video, Text };
+enum MediaSourceStreamTypeGStreamer { Invalid, Unknown, Audio, Video, Text };
 
 }
 
