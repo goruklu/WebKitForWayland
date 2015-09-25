@@ -2702,9 +2702,12 @@ void AppendPipeline::appSinkCapsChanged()
     updatePresentationSize(gst_caps_ref(caps));
     switch (m_streamType) {
     case WebCore::MediaSourceStreamTypeGStreamer::Audio:
-    case WebCore::MediaSourceStreamTypeGStreamer::Video:
         isData = true;
         m_track = WebCore::AudioTrackPrivateGStreamer::create(m_playerPrivate->pipeline(), id(), appsinkpad);
+        break;
+    case WebCore::MediaSourceStreamTypeGStreamer::Video:
+        isData = true;
+        m_track = WebCore::VideoTrackPrivateGStreamer::create(m_playerPrivate->pipeline(), id(), appsinkpad);
         break;
     case WebCore::MediaSourceStreamTypeGStreamer::Text:
         isData = true;
