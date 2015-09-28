@@ -2309,7 +2309,7 @@ static void appendPipelineDemuxerPadAdded(GstElement*, GstPad*, AppendPipeline*)
 static void appendPipelineDemuxerPadRemoved(GstElement*, GstPad*, AppendPipeline*);
 static void appendPipelineAppSinkCapsChanged(GObject*, GParamSpec*, AppendPipeline*);
 static gboolean appendPipelineAppSinkCapsChangedMainThread(AppendPipeline*);
-static void appendPipelineAppSinkNewSample(GstElement*, AppendPipeline*);
+static GstFlowReturn appendPipelineAppSinkNewSample(GstElement*, AppendPipeline*);
 static gboolean appendPipelineAppSinkNewSampleMainThread(NewSampleInfo*);
 static void appendPipelineAppSinkEOS(GstElement*, AppendPipeline*);
 static gboolean appendPipelineAppSinkEOSMainThread(AppendPipeline* ap);
@@ -2886,7 +2886,7 @@ static gboolean appendPipelineAppSinkCapsChangedMainThread(AppendPipeline* ap)
     return G_SOURCE_REMOVE;
 }
 
-static void appendPipelineAppSinkNewSample(GstElement* appsink, AppendPipeline* ap)
+static GstFlowReturn appendPipelineAppSinkNewSample(GstElement* appsink, AppendPipeline* ap)
 {
     // Done in the streaming thread for performance.
     GstSample* sample = gst_app_sink_pull_sample(GST_APP_SINK(appsink));
@@ -2897,6 +2897,7 @@ static void appendPipelineAppSinkNewSample(GstElement* appsink, AppendPipeline* 
         g_timeout_add(0, GSourceFunc(appendPipelineAppSinkNewSampleMainThread), new NewSampleInfo(sample, ap));
     }
     gst_sample_unref(sample);
+    return GST_FLOW_OK;
 }
 
 static gboolean appendPipelineAppSinkNewSampleMainThread(NewSampleInfo* info)
