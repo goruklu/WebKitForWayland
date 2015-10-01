@@ -2840,7 +2840,7 @@ void AppendPipeline::appSinkNewSample(GstSample* sample)
         RefPtr<WebCore::GStreamerMediaSample> fakeSample = WebCore::GStreamerMediaSample::createFakeSample(
                 gst_sample_get_caps(sample), timestampOffset, mediaSample->decodeTime(), mediaSample->presentationTime() - timestampOffset, mediaSample->presentationSize(),
                 mediaSample->trackID());
-        m_sourceBufferPrivate->didReceiveSample(mediaSample);
+        m_sourceBufferPrivate->didReceiveSample(fakeSample);
     }
 
     m_sourceBufferPrivate->didReceiveSample(mediaSample);
