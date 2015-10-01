@@ -48,7 +48,7 @@ class MediaSourceGStreamer;
 class SourceBufferPrivateGStreamer final : public SourceBufferPrivate {
 
 public:
-    static PassRefPtr<SourceBufferPrivateGStreamer> create(MediaSourceGStreamer*, MediaSourceClientGStreamerMSE*, const ContentType&);
+    static PassRefPtr<SourceBufferPrivateGStreamer> create(MediaSourceGStreamer*, PassRefPtr<MediaSourceClientGStreamerMSE>, const ContentType&);
     virtual ~SourceBufferPrivateGStreamer();
 
     void clearMediaSource() { m_mediaSource = 0; }
@@ -75,13 +75,12 @@ public:
 #endif
 
 private:
-    SourceBufferPrivateGStreamer(MediaSourceGStreamer*, MediaSourceClientGStreamerMSE*, const ContentType&);
+    SourceBufferPrivateGStreamer(MediaSourceGStreamer*, PassRefPtr<MediaSourceClientGStreamerMSE>, const ContentType&);
     friend class MediaSourceClientGStreamerMSE;
-
 
     MediaSourceGStreamer* m_mediaSource;
     ContentType m_type;
-    MediaSourceClientGStreamerMSE* m_client;
+    RefPtr<MediaSourceClientGStreamerMSE> m_client;
     SourceBufferPrivateClient* m_sourceBufferPrivateClient;
 };
 

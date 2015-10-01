@@ -45,12 +45,12 @@
 
 namespace WebCore {
 
-PassRefPtr<SourceBufferPrivateGStreamer> SourceBufferPrivateGStreamer::create(MediaSourceGStreamer* mediaSource, MediaSourceClientGStreamerMSE* client, const ContentType& contentType)
+PassRefPtr<SourceBufferPrivateGStreamer> SourceBufferPrivateGStreamer::create(MediaSourceGStreamer* mediaSource, PassRefPtr<MediaSourceClientGStreamerMSE> client, const ContentType& contentType)
 {
     return adoptRef(new SourceBufferPrivateGStreamer(mediaSource, client, contentType));
 }
 
-SourceBufferPrivateGStreamer::SourceBufferPrivateGStreamer(MediaSourceGStreamer* mediaSource, MediaSourceClientGStreamerMSE* client, const ContentType& contentType)
+SourceBufferPrivateGStreamer::SourceBufferPrivateGStreamer(MediaSourceGStreamer* mediaSource, PassRefPtr<MediaSourceClientGStreamerMSE> client, const ContentType& contentType)
     : SourceBufferPrivate()
     , m_mediaSource(mediaSource)
     , m_type(contentType)

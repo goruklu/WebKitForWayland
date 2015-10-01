@@ -106,7 +106,7 @@ public:
     static const unsigned int s_noDataToDecodeTimeoutMsec = 1000;
     static const unsigned int s_lastSampleTimeoutMsec = 100;
 
-    AppendPipeline(MediaSourceClientGStreamerMSE* mediaSourceClient, SourceBufferPrivateGStreamer* sourceBufferPrivate, MediaPlayerPrivateGStreamerMSE* playerPrivate);
+    AppendPipeline(PassRefPtr<MediaSourceClientGStreamerMSE> mediaSourceClient, PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, MediaPlayerPrivateGStreamerMSE* playerPrivate);
     virtual ~AppendPipeline();
 
     void handleElementMessage(GstMessage*);
@@ -125,8 +125,8 @@ public:
     AtomicString trackId();
     void abort();
 
-    MediaSourceClientGStreamerMSE* mediaSourceClient() { return m_mediaSourceClient; }
-    SourceBufferPrivateGStreamer* sourceBufferPrivate() { return m_sourceBufferPrivate; }
+    RefPtr<MediaSourceClientGStreamerMSE> mediaSourceClient() { return m_mediaSourceClient; }
+    RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate() { return m_sourceBufferPrivate; }
     GstElement* pipeline() { return m_pipeline; }
     GstElement* appsrc() { return m_appsrc; }
     GstCaps* demuxersrcpadcaps() { return m_demuxersrcpadcaps; }
@@ -141,8 +141,8 @@ private:
 
 // TODO: Hide everything and use getters/setters.
 private:
-    MediaSourceClientGStreamerMSE* m_mediaSourceClient;
-    SourceBufferPrivateGStreamer* m_sourceBufferPrivate;
+    RefPtr<MediaSourceClientGStreamerMSE> m_mediaSourceClient;
+    RefPtr<SourceBufferPrivateGStreamer> m_sourceBufferPrivate;
     MediaPlayerPrivateGStreamerMSE* m_playerPrivate;
 
     // (m_mediaType, m_id) is unique.
@@ -1457,7 +1457,6 @@ void MediaPlayerPrivateGStreamerMSE::sourceChanged()
 
     m_playbackPipeline->setWebKitMediaSrc(WEBKIT_MEDIA_SRC(m_webKitMediaSrc.get()));
 
-    //RefPtr<MediaPlayerPrivateGStreamerMSE> player = adoptRef(this);
     MediaSourceGStreamer::open(m_mediaSource.get(), this);
     g_signal_connect(m_webKitMediaSrc.get(), "video-changed", G_CALLBACK(mediaPlayerPrivateVideoChangedCallback), this);
     g_signal_connect(m_webKitMediaSrc.get(), "audio-changed", G_CALLBACK(mediaPlayerPrivateAudioChangedCallback), this);
@@ -1685,12 +1684,12 @@ bool MediaPlayerPrivateGStreamerMSE::timeIsBuffered(float time)
     return result;
 }
 
-void MediaPlayerPrivateGStreamerMSE::setMediaSourceClient(MediaSourceClientGStreamerMSE* client)
+void MediaPlayerPrivateGStreamerMSE::setMediaSourceClient(PassRefPtr<MediaSourceClientGStreamerMSE> client)
 {
     m_mediaSourceClient = client;
 }
 
-MediaSourceClientGStreamerMSE* MediaPlayerPrivateGStreamerMSE::mediaSourceClient()
+RefPtr<MediaSourceClientGStreamerMSE> MediaPlayerPrivateGStreamerMSE::mediaSourceClient()
 {
     return m_mediaSourceClient;
 }
@@ -2281,12 +2280,12 @@ GStreamerMediaSample::GStreamerMediaSample(GstSample* sample, const FloatSize& p
         m_flags = (MediaSample::SampleFlags) (m_flags | MediaSample::NonDisplaying);
 }
 
-RefPtr<GStreamerMediaSample> GStreamerMediaSample::create(GstSample* sample, const FloatSize& presentationSize, const AtomicString& trackID)
+PassRefPtr<GStreamerMediaSample> GStreamerMediaSample::create(GstSample* sample, const FloatSize& presentationSize, const AtomicString& trackID)
 {
     return adoptRef(new GStreamerMediaSample(sample, presentationSize, trackID));
 }
 
-RefPtr<GStreamerMediaSample> GStreamerMediaSample::createFakeSample(GstCaps* caps, MediaTime pts, MediaTime dts, MediaTime duration, const FloatSize& presentationSize, const AtomicString& trackID)
+PassRefPtr<GStreamerMediaSample> GStreamerMediaSample::createFakeSample(GstCaps* caps, MediaTime pts, MediaTime dts, MediaTime duration, const FloatSize& presentationSize, const AtomicString& trackID)
 {
     GstSample* sample = gst_sample_new(0, gst_caps_ref(caps), 0, 0);
     GStreamerMediaSample* s = new GStreamerMediaSample(sample, presentationSize, trackID);
@@ -2311,20 +2310,20 @@ public:
     {
         m_sample = gst_sample_ref(sample);
         m_ap = appendPipeline;
-        m_ap->ref();
     }
     virtual ~NewSampleInfo()
     {
         gst_sample_unref(m_sample);
-        m_ap->deref();
     }
 
     GstSample* sample() { return m_sample; }
-    AppendPipeline* ap() { return m_ap; }
+    RefPtr<AppendPipeline> ap() { return m_ap; }
 
 private:
     GstSample* m_sample;
-    AppendPipeline* m_ap;
+    RefPtr<AppendPipeline> m_ap;
+};
+
 };
 
 static const char* dumpAppendStage(AppendPipeline::AppendStage appendStage)
@@ -2368,7 +2367,7 @@ static void appendPipelineElementMessageCallback(GstBus*, GstMessage* message, A
     pipeline->handleElementMessage(message);
 }
 
-AppendPipeline::AppendPipeline(MediaSourceClientGStreamerMSE* mediaSourceClient, SourceBufferPrivateGStreamer* sourceBufferPrivate, MediaPlayerPrivateGStreamerMSE* playerPrivate)
+AppendPipeline::AppendPipeline(PassRefPtr<MediaSourceClientGStreamerMSE> mediaSourceClient, PassRefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, MediaPlayerPrivateGStreamerMSE* playerPrivate)
     : m_mediaSourceClient(mediaSourceClient)
     , m_sourceBufferPrivate(sourceBufferPrivate)
     , m_playerPrivate(playerPrivate)
@@ -2604,7 +2603,7 @@ void AppendPipeline::setAppendStage(AppendStage newAppendStage)
                 m_noDataToDecodeTimeoutTag = 0;
             }
             gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
-            m_mediaSourceClient->didReceiveAllPendingSamples(m_sourceBufferPrivate);
+            m_mediaSourceClient->didReceiveAllPendingSamples(m_sourceBufferPrivate.get());
             if (m_abortPending)
                 nextAppendStage = Aborting;
             else
@@ -2661,7 +2660,7 @@ void AppendPipeline::setAppendStage(AppendStage newAppendStage)
                 g_source_remove(m_lastSampleTimeoutTag);
                 m_lastSampleTimeoutTag = 0;
             }
-            m_mediaSourceClient->didReceiveAllPendingSamples(m_sourceBufferPrivate);
+            m_mediaSourceClient->didReceiveAllPendingSamples(m_sourceBufferPrivate.get());
             if (m_abortPending)
                 nextAppendStage = Aborting;
             else
@@ -2903,7 +2902,7 @@ void AppendPipeline::didReceiveInitializationSegment()
         break;
     }
 
-    m_mediaSourceClient->didReceiveInitializationSegment(m_sourceBufferPrivate, initializationSegment);
+    m_mediaSourceClient->didReceiveInitializationSegment(m_sourceBufferPrivate.get(), initializationSegment);
 }
 
 AtomicString AppendPipeline::trackId()
@@ -3113,15 +3112,17 @@ static gboolean appendPipelineLastSampleTimeout(AppendPipeline* ap)
 
 PassRefPtr<MediaSourceClientGStreamerMSE> MediaSourceClientGStreamerMSE::create(MediaPlayerPrivateGStreamerMSE* playerPrivate)
 {
-    return adoptRef(new MediaSourceClientGStreamerMSE(playerPrivate));
+    // return adoptRef(new MediaSourceClientGStreamerMSE(playerPrivate));
+    // No adoptRef because the ownership has already been transferred to MediaPlayerPrivateGStreamerMSE
+    RefPtr<MediaSourceClientGStreamerMSE> client(adoptRef(new MediaSourceClientGStreamerMSE(playerPrivate)));
+    playerPrivate->setMediaSourceClient(client);
+    return client;
 }
 
 MediaSourceClientGStreamerMSE::MediaSourceClientGStreamerMSE(MediaPlayerPrivateGStreamerMSE* playerPrivate)
-    : RefCounted<MediaSourceClientGStreamerMSE>()
-    , m_duration(MediaTime::invalidTime())
+    : m_duration(MediaTime::invalidTime())
 {
     m_playerPrivate = playerPrivate;
-    m_playerPrivate->setMediaSourceClient(this);
 }
 
 MediaSourceClientGStreamerMSE::~MediaSourceClientGStreamerMSE()
@@ -3131,7 +3132,10 @@ MediaSourceClientGStreamerMSE::~MediaSourceClientGStreamerMSE()
 
 MediaSourcePrivate::AddStatus MediaSourceClientGStreamerMSE::addSourceBuffer(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, const ContentType&)
 {
-    RefPtr<AppendPipeline> ap = adoptRef(new AppendPipeline(this, sourceBufferPrivate.get(), m_playerPrivate));
+    if (!m_playerPrivate)
+        return MediaSourcePrivate::AddStatus::NotSupported;
+
+    RefPtr<AppendPipeline> ap = adoptRef(new AppendPipeline(this, sourceBufferPrivate, m_playerPrivate));
     LOG_MEDIA_MESSAGE("this=%p sourceBuffer=%p ap=%p", this, sourceBufferPrivate.get(), ap.get());
     m_playerPrivate->m_appendPipelinesMap.add(sourceBufferPrivate, ap);
 
@@ -3153,12 +3157,17 @@ void MediaSourceClientGStreamerMSE::durationChanged(const MediaTime& duration)
         return;
 
     m_duration = duration;
-    m_playerPrivate->durationChanged();
+    if (m_playerPrivate)
+        m_playerPrivate->durationChanged();
 }
 
 void MediaSourceClientGStreamerMSE::abort(PassRefPtr<SourceBufferPrivateGStreamer> prpSourceBufferPrivate)
 {
     LOG_MEDIA_MESSAGE("%s", "");
+
+    if (!m_playerPrivate)
+        return;
+
     RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate = prpSourceBufferPrivate;
     RefPtr<AppendPipeline> ap = m_playerPrivate->m_appendPipelinesMap.get(sourceBufferPrivate);
     ap->abort();
@@ -3167,6 +3176,9 @@ void MediaSourceClientGStreamerMSE::abort(PassRefPtr<SourceBufferPrivateGStreame
 bool MediaSourceClientGStreamerMSE::append(PassRefPtr<SourceBufferPrivateGStreamer> prpSourceBufferPrivate, const unsigned char* data, unsigned length)
 {
     LOG_MEDIA_MESSAGE("%u bytes", length);
+
+    if (!m_playerPrivate)
+        return false;
 
     RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate = prpSourceBufferPrivate;
     RefPtr<AppendPipeline> ap = m_playerPrivate->m_appendPipelinesMap.get(sourceBufferPrivate);
@@ -3185,6 +3197,9 @@ void MediaSourceClientGStreamerMSE::markEndOfStream(MediaSourcePrivate::EndOfStr
 
 void MediaSourceClientGStreamerMSE::removedFromMediaSource(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate)
 {
+    if (!m_playerPrivate)
+        return;
+
     RefPtr<AppendPipeline> ap = m_playerPrivate->m_appendPipelinesMap.get(sourceBufferPrivate);
     m_playerPrivate->m_appendPipelinesMap.remove(sourceBufferPrivate);
     gst_element_set_state (ap->pipeline(), GST_STATE_NULL);
@@ -3197,13 +3212,18 @@ void MediaSourceClientGStreamerMSE::removedFromMediaSource(RefPtr<SourceBufferPr
 
 void MediaSourceClientGStreamerMSE::flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample> > samples)
 {
+    if (!m_playerPrivate)
+        return;
+
     m_playerPrivate->m_playbackPipeline->flushAndEnqueueNonDisplayingSamples(samples);
 }
 
 void MediaSourceClientGStreamerMSE::enqueueSample(PassRefPtr<MediaSample> prpSample)
 {
-    RefPtr<MediaSample> sample = prpSample;
-    m_playerPrivate->m_playbackPipeline->enqueueSample(sample.release());
+    if (!m_playerPrivate)
+        return;
+
+    m_playerPrivate->m_playbackPipeline->enqueueSample(prpSample);
 }
 
 void MediaSourceClientGStreamerMSE::didReceiveInitializationSegment(SourceBufferPrivateGStreamer* sourceBuffer, const SourceBufferPrivateClient::InitializationSegment& initializationSegment)
@@ -3224,6 +3244,11 @@ GRefPtr<WebKitMediaSrc> MediaSourceClientGStreamerMSE::webKitMediaSrc()
     ASSERT(WEBKIT_IS_MEDIA_SRC(source));
 
     return GRefPtr<WebKitMediaSrc>(source);
+}
+
+void MediaSourceClientGStreamerMSE::clearPlayerPrivate()
+{
+    m_playerPrivate = nullptr;
 }
 
 } // namespace WebCore

@@ -78,7 +78,7 @@ MediaSourceGStreamer::AddStatus MediaSourceGStreamer::addSourceBuffer(const Cont
     // if (MediaPlayerPrivateGStreamer::supportsType(parameters) == MediaPlayer::IsNotSupported)
     //     return NotSupported;
 
-    RefPtr<SourceBufferPrivateGStreamer> buffer = SourceBufferPrivateGStreamer::create(this, m_client.get(), contentType);
+    RefPtr<SourceBufferPrivateGStreamer> buffer = SourceBufferPrivateGStreamer::create(this, m_client, contentType);
     m_sourceBuffers.add(buffer.get());
     sourceBufferPrivate = buffer;
     return m_client->addSourceBuffer(buffer, contentType);

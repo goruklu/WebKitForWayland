@@ -67,6 +67,7 @@ class MediaSourceClientGStreamerMSE;
 class AppendPipeline;
 
 class MediaPlayerPrivateGStreamerMSE : public MediaPlayerPrivateGStreamerBase {
+    WTF_MAKE_NONCOPYABLE(MediaPlayerPrivateGStreamerMSE); WTF_MAKE_FAST_ALLOCATED;
 
     friend class MediaSourceClientGStreamerMSE;
 
@@ -205,8 +206,8 @@ private:
     MediaTime totalFrameDelay() override { return MediaTime::zeroTime(); }
     bool timeIsBuffered(float);
 
-    void setMediaSourceClient(MediaSourceClientGStreamerMSE*);
-    MediaSourceClientGStreamerMSE* mediaSourceClient();
+    void setMediaSourceClient(PassRefPtr<MediaSourceClientGStreamerMSE>);
+    RefPtr<MediaSourceClientGStreamerMSE> mediaSourceClient();
 
     RefPtr<AppendPipeline> appendPipelineByTrackId(const AtomicString& trackId);
 
@@ -277,7 +278,7 @@ private:
 
     HashMap<RefPtr<SourceBufferPrivateGStreamer>, RefPtr<AppendPipeline> > m_appendPipelinesMap;
     RefPtr<PlaybackPipeline> m_playbackPipeline;
-    MediaSourceClientGStreamerMSE* m_mediaSourceClient;
+    RefPtr<MediaSourceClientGStreamerMSE> m_mediaSourceClient;
 };
 
 class GStreamerMediaSample : public MediaSample
@@ -293,8 +294,8 @@ private:
     GStreamerMediaSample(GstSample* sample, const FloatSize& presentationSize, const AtomicString& trackID);
 
 public:
-    static RefPtr<GStreamerMediaSample> create(GstSample* sample, const FloatSize& presentationSize, const AtomicString& trackID);
-    static RefPtr<GStreamerMediaSample> createFakeSample(GstCaps* caps, MediaTime pts, MediaTime dts, MediaTime duration, const FloatSize& presentationSize, const AtomicString& trackID);
+    static PassRefPtr<GStreamerMediaSample> create(GstSample* sample, const FloatSize& presentationSize, const AtomicString& trackID);
+    static PassRefPtr<GStreamerMediaSample> createFakeSample(GstCaps* caps, MediaTime pts, MediaTime dts, MediaTime duration, const FloatSize& presentationSize, const AtomicString& trackID);
 
     virtual ~GStreamerMediaSample();
 
@@ -337,12 +338,17 @@ class MediaSourceClientGStreamerMSE: public RefCounted<MediaSourceClientGStreame
         void didReceiveInitializationSegment(SourceBufferPrivateGStreamer*, const SourceBufferPrivateClient::InitializationSegment&);
         void didReceiveAllPendingSamples(SourceBufferPrivateGStreamer* sourceBuffer);
 
+        void clearPlayerPrivate();
+
         MediaTime duration();
         GRefPtr<WebKitMediaSrc> webKitMediaSrc();
 
     private:
         MediaSourceClientGStreamerMSE(MediaPlayerPrivateGStreamerMSE* playerPrivate);
 
+        // Would better be a RefPtr, but the playerprivate is a unique_ptr, so
+        // we can't mess with references here. In exchange, the playerprivate
+        // must notify us when it's being destroyed, so we can clear our pointer.
         MediaPlayerPrivateGStreamerMSE* m_playerPrivate;
         MediaTime m_duration;
 };
