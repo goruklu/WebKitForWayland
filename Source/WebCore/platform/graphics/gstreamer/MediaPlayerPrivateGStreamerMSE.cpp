@@ -625,7 +625,7 @@ float MediaPlayerPrivateGStreamerMSE::currentTime() const
     }
 
     float playpos = playbackPosition();
-    LOG_MEDIA_MESSAGE("(PLAYBACK POSITION) %f", playpos);
+    // LOG_MEDIA_MESSAGE("(PLAYBACK POSITION) %f", playpos);
     return playpos;
 }
 
@@ -2963,6 +2963,9 @@ GstFlowReturn AppendPipeline::handleNewSample(GstElement* appsink)
 
 void AppendPipeline::connectToAppSink(GstPad* demuxersrcpad)
 {
+    if (!m_appsink)
+        return;
+
     LOG_MEDIA_MESSAGE("Demuxer has a new srcpad. Connecting to appsink");
     GRefPtr<GstPad> sinkSinkPad = gst_element_get_static_pad(m_appsink, "sink");
 
