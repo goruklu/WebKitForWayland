@@ -2393,7 +2393,8 @@ AppendPipeline::AppendPipeline(MediaSourceClientGStreamerMSE* mediaSourceClient,
 
     g_mutex_init(&m_newSampleMutex);
     g_cond_init(&m_newSampleCondition);
-    
+
+    m_decryptor = NULL;
     m_appsrc = gst_element_factory_make("appsrc", NULL);
     m_typefind = gst_element_factory_make("typefind", NULL);
     m_qtdemux = gst_element_factory_make("qtdemux", NULL);
