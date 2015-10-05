@@ -2456,7 +2456,6 @@ AppendPipeline::AppendPipeline(PassRefPtr<MediaSourceClientGStreamerMSE> mediaSo
     m_appsrc = gst_element_factory_make("appsrc", NULL);
     m_typefind = gst_element_factory_make("typefind", NULL);
     m_qtdemux = gst_element_factory_make("qtdemux", NULL);
-    m_decryptor = NULL;
     m_appsink = gst_element_factory_make("appsink", NULL);
     gst_app_sink_set_emit_signals(GST_APP_SINK(m_appsink), TRUE);
     gst_base_sink_set_sync(GST_BASE_SINK(m_appsink), FALSE);
@@ -2636,12 +2635,12 @@ gint AppendPipeline::id()
 void AppendPipeline::setAppendStage(AppendStage newAppendStage)
 {
     g_assert(WTF::isMainThread());
-
     // Valid transitions:
     // NotStarted-->Ongoing-->NoDataToDecode-->NotStarted
     //           |         |                `->Aborting-->NotStarted
     //           |         `->Sampling-···->Sampling-->LastSample-->NotStarted
-    //           |                                               `->Aborting-->NotStarted
+    //           |         |                                     `->Aborting-->NotStarted
+    //           |         `->KeyNegotiation-->Ongoing-->[...]
     //           `->Aborting-->NotStarted
     AppendStage oldAppendStage = m_appendStage;
     AppendStage nextAppendStage = Invalid;
@@ -2656,10 +2655,6 @@ void AppendPipeline::setAppendStage(AppendStage newAppendStage)
         g_assert(m_noDataToDecodeTimeoutTag == 0);
         g_assert(m_lastSampleTimeoutTag == 0);
         switch (newAppendStage) {
-        case KeyNegotiation:
-            ok = true;
-            //nextAppendStage = Ongoing;
-            break;
         case Ongoing:
             ok = true;
             gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
@@ -2680,10 +2675,12 @@ void AppendPipeline::setAppendStage(AppendStage newAppendStage)
         }
         break;
     case KeyNegotiation:
+        g_assert(m_noDataToDecodeTimeoutTag == 0);
+        g_assert(m_lastSampleTimeoutTag == 0);
         switch (newAppendStage) {
         case Ongoing:
             ok = true;
-            gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
+            m_noDataToDecodeTimeoutTag = g_timeout_add(s_noDataToDecodeTimeoutMsec, GSourceFunc(appendPipelineNoDataToDecodeTimeout), this);
             break;
         case Invalid:
             ok = true;
@@ -2701,9 +2698,16 @@ void AppendPipeline::setAppendStage(AppendStage newAppendStage)
         }
         break;
     case Ongoing:
-        //g_assert(m_noDataToDecodeTimeoutTag != 0);
+        g_assert(m_noDataToDecodeTimeoutTag != 0);
         g_assert(m_lastSampleTimeoutTag == 0);
         switch (newAppendStage) {
+        case KeyNegotiation:
+            ok = true;
+            if (m_noDataToDecodeTimeoutTag) {
+                g_source_remove(m_noDataToDecodeTimeoutTag);
+                m_noDataToDecodeTimeoutTag = 0;
+            }
+            break;
         case NoDataToDecode:
             ok = true;
             if (m_noDataToDecodeTimeoutTag) {
@@ -3246,6 +3250,7 @@ void AppendPipeline::disconnectFromAppSinkFromAnyThread()
     if (m_decryptor) {
         gst_element_unlink(m_decryptor, m_appsink);
         gst_element_unlink(m_qtdemux, m_decryptor);
+        gst_element_set_state(m_decryptor, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(m_pipeline), m_decryptor);
     } else
         gst_element_unlink(m_qtdemux, m_appsink);
