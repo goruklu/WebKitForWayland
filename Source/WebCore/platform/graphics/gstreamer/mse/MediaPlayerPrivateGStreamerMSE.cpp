@@ -54,6 +54,13 @@
 #include "PlayreadySession.h"
 #endif
 
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA)
+#if USE(OCDM)
+#include "CDMPrivateOpenCDM.h"
+#include "CDMSessionOpenCDM.h"
+#endif
+#endif
+
 static const char* dumpReadyState(WebCore::MediaPlayer::ReadyState readyState)
 {
     switch (readyState) {
@@ -870,6 +877,29 @@ void MediaPlayerPrivateGStreamerMSE::emitPlayReadySession(PlayreadySession* sess
         }
 }
 #endif
+#endif
+
+#if (ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(LEGACY_ENCRYPTED_MEDIA_V1)) && USE(OCDM)
+void MediaPlayerPrivateGStreamerMSE::emitOpenCDMSession()
+{
+    if (!m_cdmSession)
+        return;
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+    CDMSessionOpenCDM* cdmSession = static_cast<CDMSessionOpenCDM*>(m_cdmSession);
+#else
+    CDMSessionOpenCDM* cdmSession = static_cast<CDMSessionOpenCDM*>(m_cdmSession.get());
+#endif // ENABLE(LEGACY_ENCRYPTED_MEDIA)
+    const String& sessionId = cdmSession->sessionId();
+    if (sessionId.isEmpty())
+        return;
+    for (auto it : m_appendPipelinesMap)
+    {
+            gst_element_send_event(it.value->pipeline(), gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB,
+                gst_structure_new("drm-session", "session", G_TYPE_STRING, sessionId.utf8().data(), nullptr)));
+            it.value->setAppendState(AppendPipeline::AppendState::Ongoing);
+    }
+    GST_DEBUG("emitted OCDM session on pipeline");
+}
 #endif
 
 void MediaPlayerPrivateGStreamerMSE::markEndOfStream(MediaSourcePrivate::EndOfStreamStatus status)

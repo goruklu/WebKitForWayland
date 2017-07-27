@@ -269,6 +269,10 @@ protected:
     Condition m_drawCondition;
     Lock m_drawMutex;
 #endif
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) && USE(OPENCDM)
+    std::unique_ptr<CDMSession> m_cdmSession;
+    Lock m_cdmSessionMutex;
+#endif
 
 private:
     WeakPtr<MediaPlayerPrivateGStreamerBase> createWeakPtr() { return m_weakPtrFactory.createWeakPtr(); }
@@ -291,10 +295,6 @@ private:
     mutable Lock m_prSessionsMutex;
 #endif
 
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) && USE(OPENCDM)
-    std::unique_ptr<CDMSession> m_cdmSession;
-    Lock m_cdmSessionMutex;
-#endif
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
     std::unique_ptr<CDMSession> createSession(const String&, CDMSessionClient*);
     CDMSession* m_cdmSession;
