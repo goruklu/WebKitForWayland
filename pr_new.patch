@@ -1,0 +1,125 @@
+diff --git a/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamerBase.cpp b/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamerBase.cpp
+index 62301ef..1675853 100644
+--- a/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamerBase.cpp
++++ b/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamerBase.cpp
+@@ -1568,15 +1568,21 @@ void MediaPlayerPrivateGStreamerBase::emitPlayReadySession(PlayreadySession* ses
+ #endif // USE(PLAYREADY)
+ 
+ #if USE(OPENCDM)
+-void MediaPlayerPrivateGStreamerBase::emitOpenCDMSession()
++CDMSessionOpenCDM MediaPlayerPrivateGStreamerBase::getOpenCDMSession()
+ {
+-    if (!m_cdmSession)
+-        return;
+ #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+-    CDMSessionOpenCDM* cdmSession = static_cast<CDMSessionOpenCDM*>(m_cdmSession);
++    return static_cast<CDMSessionOpenCDM*>(m_cdmSession);
+ #else
+-    CDMSessionOpenCDM* cdmSession = static_cast<CDMSessionOpenCDM*>(m_cdmSession.get());
++    return static_cast<CDMSessionOpenCDM*>(m_cdmSession.get());
+ #endif // ENABLE(LEGACY_ENCRYPTED_MEDIA)
++}
++
++void MediaPlayerPrivateGStreamerBase::emitOpenCDMSession()
++{
++    if (!m_cdmSession)
++        return;
++
++    CDMSessionOpenCDM* cdmSession = getOpenCDMSession();
+     const String& sessionId = cdmSession->sessionId();
+     if (sessionId.isEmpty())
+         return;
+diff --git a/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamerBase.h b/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamerBase.h
+index 8baaba5..43d8340 100644
+--- a/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamerBase.h
++++ b/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamerBase.h
+@@ -270,6 +270,10 @@ protected:
+     Lock m_drawMutex;
+ #endif
+ 
++#if (ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(LEGACY_ENCRYPTED_MEDIA_V1)) && USE(OPENCDM)
++    CDMSessionOpenCDM* getOpenCDMSession();
++#endif
++
+ private:
+     WeakPtr<MediaPlayerPrivateGStreamerBase> createWeakPtr() { return m_weakPtrFactory.createWeakPtr(); }
+ 
+diff --git a/Source/WebCore/platform/graphics/gstreamer/eme/WebKitOpenCDMDecryptorGStreamer.cpp b/Source/WebCore/platform/graphics/gstreamer/eme/WebKitOpenCDMDecryptorGStreamer.cpp
+index 17b95cf..778f317 100644
+--- a/Source/WebCore/platform/graphics/gstreamer/eme/WebKitOpenCDMDecryptorGStreamer.cpp
++++ b/Source/WebCore/platform/graphics/gstreamer/eme/WebKitOpenCDMDecryptorGStreamer.cpp
+@@ -96,9 +96,14 @@ static gboolean webKitMediaOpenCDMDecryptorHandleKeyResponse(WebKitMediaCommonEn
+     WebKitOpenCDMDecryptPrivate* priv = GST_WEBKIT_OPENCDM_DECRYPT_GET_PRIVATE(WEBKIT_OPENCDM_DECRYPT(self));
+     ASSERT(temporarySession);
+ 
+-    priv->m_session = temporarySession.get();
+-    priv->m_openCdm = std::make_unique<media::OpenCdm>();
+-    priv->m_openCdm->SelectSession(priv->m_session.utf8().data());
++    if(priv->m_session != temporarySession.get() ) {
++        priv->m_session = temporarySession.get();
++        GST_INFO_OBJECT(self, "selecting session %s", priv->m_session.utf8().data());
++        priv->m_openCdm = std::make_unique<media::OpenCdm>();
++        priv->m_openCdm->SelectSession(priv->m_session.utf8().data());
++    } else
++        GST_INFO_OBJECT(self, "session already selected! %s", priv->m_session.utf8().data());
++
+     return true;
+ }
+ 
+diff --git a/Source/WebCore/platform/graphics/gstreamer/mse/MediaPlayerPrivateGStreamerMSE.cpp b/Source/WebCore/platform/graphics/gstreamer/mse/MediaPlayerPrivateGStreamerMSE.cpp
+index 39e6cad..53ed22b 100644
+--- a/Source/WebCore/platform/graphics/gstreamer/mse/MediaPlayerPrivateGStreamerMSE.cpp
++++ b/Source/WebCore/platform/graphics/gstreamer/mse/MediaPlayerPrivateGStreamerMSE.cpp
+@@ -54,6 +54,11 @@
+ #include "PlayreadySession.h"
+ #endif
+ 
++#if (ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(LEGACY_ENCRYPTED_MEDIA_V1)) && USE(OCDM)
++#include "CDMPrivateOpenCDM.h"
++#include "CDMSessionOpenCDM.h"
++#endif
++
+ static const char* dumpReadyState(WebCore::MediaPlayer::ReadyState readyState)
+ {
+     switch (readyState) {
+@@ -872,6 +877,26 @@ void MediaPlayerPrivateGStreamerMSE::emitPlayReadySession(PlayreadySession* sess
+ #endif
+ #endif
+ 
++#if (ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(LEGACY_ENCRYPTED_MEDIA_V1)) && USE(OCDM)
++void MediaPlayerPrivateGStreamerMSE::emitOpenCDMSession()
++{
++    if (!m_cdmSession)
++        return;
++
++    CDMSessionOpenCDM* cdmSession = getOpenCDMSession();
++    const String& sessionId = cdmSession->sessionId();
++    if (sessionId.isEmpty())
++        return;
++
++    for (auto it : m_appendPipelinesMap) {
++            gst_element_send_event(it.value->pipeline(), gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB,
++                gst_structure_new("drm-session", "session", G_TYPE_STRING, sessionId.utf8().data(), nullptr)));
++            it.value->setAppendState(AppendPipeline::AppendState::Ongoing);
++    }
++    GST_DEBUG("emitted OCDM session on pipeline");
++}
++#endif
++
+ void MediaPlayerPrivateGStreamerMSE::markEndOfStream(MediaSourcePrivate::EndOfStreamStatus status)
+ {
+     if (status != MediaSourcePrivate::EosNoError)
+diff --git a/Source/WebCore/platform/graphics/gstreamer/mse/MediaPlayerPrivateGStreamerMSE.h b/Source/WebCore/platform/graphics/gstreamer/mse/MediaPlayerPrivateGStreamerMSE.h
+index 0ad147c..7baf013 100644
+--- a/Source/WebCore/platform/graphics/gstreamer/mse/MediaPlayerPrivateGStreamerMSE.h
++++ b/Source/WebCore/platform/graphics/gstreamer/mse/MediaPlayerPrivateGStreamerMSE.h
+@@ -88,6 +88,9 @@ public:
+ #if USE(PLAYREADY)
+     void emitPlayReadySession(PlayreadySession*) override;
+ #endif
++#if USE(OCDM)
++    void emitOpenCDMSession() override;
++#endif
+ #endif
+ 
+     void trackDetected(RefPtr<AppendPipeline>, RefPtr<WebCore::TrackPrivateBase> oldTrack, RefPtr<WebCore::TrackPrivateBase> newTrack);

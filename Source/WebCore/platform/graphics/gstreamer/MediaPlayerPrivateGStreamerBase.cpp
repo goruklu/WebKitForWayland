@@ -1568,15 +1568,21 @@ void MediaPlayerPrivateGStreamerBase::emitPlayReadySession(PlayreadySession* ses
 #endif // USE(PLAYREADY)
 
 #if USE(OPENCDM)
+CDMSessionOpenCDM* MediaPlayerPrivateGStreamerBase::getOpenCDMSession()
+{
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+    return static_cast<CDMSessionOpenCDM*>(m_cdmSession);
+#else
+    return static_cast<CDMSessionOpenCDM*>(m_cdmSession.get());
+#endif // ENABLE(LEGACY_ENCRYPTED_MEDIA)
+}
+
 void MediaPlayerPrivateGStreamerBase::emitOpenCDMSession()
 {
     if (!m_cdmSession)
         return;
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
-    CDMSessionOpenCDM* cdmSession = static_cast<CDMSessionOpenCDM*>(m_cdmSession);
-#else
-    CDMSessionOpenCDM* cdmSession = static_cast<CDMSessionOpenCDM*>(m_cdmSession.get());
-#endif // ENABLE(LEGACY_ENCRYPTED_MEDIA)
+
+    CDMSessionOpenCDM* cdmSession = getOpenCDMSession();
     const String& sessionId = cdmSession->sessionId();
     if (sessionId.isEmpty())
         return;
