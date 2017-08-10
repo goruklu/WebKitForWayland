@@ -893,7 +893,7 @@ void MediaPlayerPrivateGStreamerMSE::emitOpenCDMSession()
                 gst_structure_new("drm-session", "session", G_TYPE_STRING, sessionId.utf8().data(), nullptr)));
             it.value->setAppendState(AppendPipeline::AppendState::Ongoing);
     }
-    GST_DEBUG("emitted OCDM session on pipeline");
+    GST_DEBUG("emitted OpenCDM session on pipeline");
 }
 #endif
 

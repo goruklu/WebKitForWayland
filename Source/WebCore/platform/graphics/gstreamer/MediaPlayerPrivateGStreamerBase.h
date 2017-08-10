@@ -275,7 +275,7 @@ protected:
 #endif
 
 #if (ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(LEGACY_ENCRYPTED_MEDIA_V1)) && USE(OPENCDM)
-    CDMSessionOpenCDM* getOpenCDMSession();
+    CDMSessionOpenCDM* openCDMSession();
 #endif
 
 private:
