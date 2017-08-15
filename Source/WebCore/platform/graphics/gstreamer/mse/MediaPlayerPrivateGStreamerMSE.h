@@ -88,7 +88,7 @@ public:
 #if USE(PLAYREADY)
     void emitPlayReadySession(PlayreadySession*) override;
 #endif
-#if USE(OCDM)
+#if USE(OPENCDM)
     void emitOpenCDMSession() override;
 #endif
 #endif

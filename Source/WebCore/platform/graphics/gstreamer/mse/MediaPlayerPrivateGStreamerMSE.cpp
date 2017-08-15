@@ -54,7 +54,7 @@
 #include "PlayreadySession.h"
 #endif
 
-#if (ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(LEGACY_ENCRYPTED_MEDIA_V1)) && USE(OCDM)
+#if (ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(LEGACY_ENCRYPTED_MEDIA_V1)) && USE(OPENCDM)
 #include "CDMPrivateOpenCDM.h"
 #include "CDMSessionOpenCDM.h"
 #endif
@@ -877,13 +877,13 @@ void MediaPlayerPrivateGStreamerMSE::emitPlayReadySession(PlayreadySession* sess
 #endif
 #endif
 
-#if (ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(LEGACY_ENCRYPTED_MEDIA_V1)) && USE(OCDM)
+#if (ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(LEGACY_ENCRYPTED_MEDIA_V1)) && USE(OPENCDM)
 void MediaPlayerPrivateGStreamerMSE::emitOpenCDMSession()
 {
-    if (!m_cdmSession)
+    CDMSessionOpenCDM* cdmSession = openCDMSession();
+    if (!cdmSession)
         return;
 
-    CDMSessionOpenCDM* cdmSession = getOpenCDMSession();
     const String& sessionId = cdmSession->sessionId();
     if (sessionId.isEmpty())
         return;
