@@ -403,8 +403,8 @@ gboolean webKitMediaSrcQueryWithParent(GstPad* pad, GstObject* parent, GstQuery*
         switch (format) {
         case GST_FORMAT_TIME: {
             if (source->priv && source->priv->mediaPlayerPrivate) {
-                float duration = source->priv->mediaPlayerPrivate->durationMediaTime().toFloat();
-                if (duration > 0) {
+                MediaTime duration = source->priv->mediaPlayerPrivate->durationMediaTime();
+                if (duration > MediaTime::zeroTime()) {
                     gst_query_set_duration(query, format, WebCore::toGstClockTime(duration));
                     GST_DEBUG_OBJECT(source, "Answering: duration=%" GST_TIME_FORMAT, GST_TIME_ARGS(WebCore::toGstClockTime(duration)));
                     result = TRUE;
@@ -594,7 +594,7 @@ GstURIType webKitMediaSrcUriGetType(GType)
 
 const gchar* const* webKitMediaSrcGetProtocols(GType)
 {
-    static const char* protocols[] = {"mediasourceblob", 0 };
+    static const char* protocols[] = {"mediasourceblob", nullptr };
     return protocols;
 }
 
@@ -677,7 +677,7 @@ static void notifyReadyForMoreSamplesMainThread(WebKitMediaSrc* source, Stream* 
     }
 
     WebCore::MediaPlayerPrivateGStreamerMSE* mediaPlayerPrivate = source->priv->mediaPlayerPrivate;
-    if (mediaPlayerPrivate)
+    if (mediaPlayerPrivate && !mediaPlayerPrivate->seeking())
         appsrcStream->sourceBuffer->notifyReadyForMoreSamples();
 
     GST_OBJECT_UNLOCK(source);

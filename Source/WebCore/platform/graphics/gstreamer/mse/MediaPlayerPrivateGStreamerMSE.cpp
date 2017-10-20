@@ -48,7 +48,16 @@
 #include <gst/pbutils/pbutils.h>
 #include <gst/video/video.h>
 #include <wtf/Condition.h>
+#include <wtf/HashSet.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/StringPrintStream.h>
+#include <wtf/text/AtomicString.h>
+#include <wtf/text/AtomicStringHash.h>
+
+#if ENABLE(ENCRYPTED_MEDIA)
+#include "CDMClearKey.h"
+#include "SharedBuffer.h"
+#endif
 
 #if USE(PLAYREADY)
 #include "PlayreadySession.h"
@@ -70,9 +79,6 @@ static const char* dumpReadyState(WebCore::MediaPlayer::ReadyState readyState)
     default: return "(unknown)";
     }
 }
-
-// Max interval in seconds to stay in the READY state on manual state change requests.
-static const unsigned gReadyStateTimerInterval = 60;
 
 GST_DEBUG_CATEGORY(webkit_mse_debug);
 #define GST_CAT_DEFAULT webkit_mse_debug
@@ -120,6 +126,9 @@ MediaPlayerPrivateGStreamerMSE::MediaPlayerPrivateGStreamerMSE(MediaPlayer* play
 MediaPlayerPrivateGStreamerMSE::~MediaPlayerPrivateGStreamerMSE()
 {
     GST_TRACE("destroying the player (%p)", this);
+
+    if (m_mediaSourceClient)
+        m_mediaSourceClient->clearPlayerPrivate();
 
     for (auto iterator : m_appendPipelinesMap)
         iterator.value->clearPlayerPrivate();
@@ -171,15 +180,15 @@ MediaTime MediaPlayerPrivateGStreamerMSE::durationMediaTime() const
     return m_mediaTimeDuration;
 }
 
-void MediaPlayerPrivateGStreamerMSE::seek(float time)
+void MediaPlayerPrivateGStreamerMSE::seek(const MediaTime& time)
 {
     if (UNLIKELY(!m_pipeline || m_errorOccured))
         return;
 
-    GST_INFO("[Seek] seek attempt to %f secs", time);
+    GST_INFO("[Seek] seek attempt to %s secs", toString(time).utf8().data());
 
     // Avoid useless seeking.
-    float current = currentMediaTime().toFloat();
+    MediaTime current = currentMediaTime();
     if (time == current) {
         if (!m_seeking)
             timeChanged();
@@ -194,19 +203,19 @@ void MediaPlayerPrivateGStreamerMSE::seek(float time)
         return;
     }
 
-    GST_DEBUG("Seeking from %f to %f seconds", current, time);
+    GST_DEBUG("Seeking from %s to %s seconds", toString(current).utf8().data(), toString(time).utf8().data());
 
-    float prevSeekTime = m_seekTime;
+    MediaTime previousSeekTime = m_seekTime;
     m_seekTime = time;
 
     if (!doSeek()) {
-        m_seekTime = prevSeekTime;
-        GST_WARNING("Seeking to %f failed", time);
+        m_seekTime = previousSeekTime;
+        GST_WARNING("Seeking to %s failed", toString(time).utf8().data());
         return;
     }
 
     m_isEndReached = false;
-    GST_DEBUG("m_seeking=%s, m_seekTime=%f", m_seeking ? "true" : "false", m_seekTime);
+    GST_DEBUG("m_seeking=%s, m_seekTime=%f", boolForPrinting(m_seeking), m_seekTime);
 }
 
 void MediaPlayerPrivateGStreamerMSE::configurePlaySink()
@@ -237,7 +246,7 @@ void MediaPlayerPrivateGStreamerMSE::notifySeekNeedsDataForTime(const MediaTime&
     // Reenqueue samples needed to resume playback in the new position.
     m_mediaSource->seekToTime(seekTime);
 
-    GST_DEBUG("MSE seek to %f finished", seekTime.toDouble());
+    GST_DEBUG("MSE seek to %s finished", toString(seekTime).utf8().data());
 
     if (!m_gstSeekCompleted) {
         m_gstSeekCompleted = true;
@@ -245,7 +254,7 @@ void MediaPlayerPrivateGStreamerMSE::notifySeekNeedsDataForTime(const MediaTime&
     }
 }
 
-bool MediaPlayerPrivateGStreamerMSE::doSeek(gint64, float, GstSeekFlags)
+bool MediaPlayerPrivateGStreamerMSE::doSeek(const MediaTime&, float, GstSeekFlags)
 {
     // Use doSeek() instead. If anybody is calling this version of doSeek(), something is wrong.
     ASSERT_NOT_REACHED();
@@ -254,8 +263,7 @@ bool MediaPlayerPrivateGStreamerMSE::doSeek(gint64, float, GstSeekFlags)
 
 bool MediaPlayerPrivateGStreamerMSE::doSeek()
 {
-    GstClockTime position = toGstClockTime(m_seekTime);
-    MediaTime seekTime = MediaTime::createWithDouble(m_seekTime);
+    MediaTime seekTime = m_seekTime;
     double rate = m_player->rate();
     GstSeekFlags seekType = static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | hardwareDependantSeekFlags());
 
@@ -312,10 +320,10 @@ bool MediaPlayerPrivateGStreamerMSE::doSeek()
     if (!isTimeBuffered(seekTime)) {
         // Look if a near future time (<0.1 sec.) is buffered and change the seek target time.
         if (m_mediaSource) {
-            const MediaTime miniGap = MediaTime::createWithDouble(0.1);
+            const MediaTime miniGap = MediaTime(1, 10);
             MediaTime nearest = m_mediaSource->buffered()->nearest(seekTime);
             if (nearest.isValid() && nearest > seekTime && (nearest - seekTime) <= miniGap && isTimeBuffered(nearest + miniGap)) {
-                GST_DEBUG("[Seek] Changed the seek target time from %f to %f, a near point in the future", seekTime.toFloat(), nearest.toFloat());
+                GST_DEBUG("[Seek] Changed the seek target time from %s to %s, a near point in the future", toString(seekTime).utf8().data(), toString(nearest).utf8().data());
                 seekTime = nearest;
             }
         }
@@ -325,18 +333,25 @@ bool MediaPlayerPrivateGStreamerMSE::doSeek()
     // This condition on m_readyState must match the conditions which trigger completeSeek() in
     // MediaSource::monitorSourceBuffers().
     if (!isTimeBuffered(seekTime) || m_readyState < MediaPlayer::HaveCurrentData) {
-        GST_DEBUG("[Seek] Delaying the seek: MSE is not ready");
-        GstStateChangeReturn setStateResult = gst_element_set_state(m_pipeline.get(), GST_STATE_PAUSED);
-        if (setStateResult == GST_STATE_CHANGE_FAILURE) {
-            GST_DEBUG("[Seek] Cannot seek, failed to pause playback pipeline.");
-            webKitMediaSrcSetReadyForSamples(WEBKIT_MEDIA_SRC(m_source.get()), true);
-            m_seeking = false;
-            return false;
+        m_mediaSourceClient->setStartupBufferingComplete(false);
+
+        // Media source may trigger seek completion even when the target time is not yet buffered,
+        // in this case it is better continue the seek and wait for the app to provide media data.
+        m_mseSeekCompleted = true;
+        m_mediaSource->seekToTime(seekTime);
+        if (!m_mseSeekCompleted) {
+            GST_DEBUG("[Seek] Delaying the seek: MSE is not ready");
+            m_readyState = MediaPlayer::HaveMetadata;
+            GstStateChangeReturn setStateResult = gst_element_set_state(m_pipeline.get(), GST_STATE_PAUSED);
+            if (setStateResult == GST_STATE_CHANGE_FAILURE) {
+                GST_WARNING("[Seek] Cannot seek, failed to pause playback pipeline.");
+                webKitMediaSrcSetReadyForSamples(WEBKIT_MEDIA_SRC(m_source.get()), true);
+                m_seeking = false;
+                return false;
+            }
+            return true;
         }
-        m_readyState = MediaPlayer::HaveMetadata;
-        notifySeekNeedsDataForTime(seekTime);
-        ASSERT(!m_mseSeekCompleted);
-        return true;
+        GST_DEBUG("[Seek] The target seek time is not buffered yet, but media source says OK to continue the seek, seekTime=%f", seekTime.toDouble());
     }
 
     // Complete previous MSE seek if needed.
@@ -349,22 +364,23 @@ bool MediaPlayerPrivateGStreamerMSE::doSeek()
 
     GST_DEBUG("We can seek now");
 
-    gint64 startTime = position, endTime = GST_CLOCK_TIME_NONE;
+    MediaTime startTime = seekTime, endTime = MediaTime::invalidTime();
+
     if (rate < 0) {
-        startTime = 0;
-        endTime = position;
+        startTime = MediaTime::zeroTime();
+        endTime = seekTime;
     }
 
     if (!rate)
         rate = 1;
 
-    GST_DEBUG("Actual seek to %" GST_TIME_FORMAT ", end time:  %" GST_TIME_FORMAT ", rate: %f", GST_TIME_ARGS(startTime), GST_TIME_ARGS(endTime), rate);
+    GST_DEBUG("Actual seek to %s, end time:  %s, rate: %f", toString(startTime).utf8().data(), toString(endTime).utf8().data(), rate);
 
     // This will call notifySeekNeedsData() after some time to tell that the pipeline is ready for sample enqueuing.
     webKitMediaSrcPrepareSeek(WEBKIT_MEDIA_SRC(m_source.get()), seekTime);
 
     m_gstSeekCompleted = false;
-    if (!gst_element_seek(m_pipeline.get(), rate, GST_FORMAT_TIME, seekType, GST_SEEK_TYPE_SET, startTime, GST_SEEK_TYPE_SET, endTime)) {
+    if (!gst_element_seek(m_pipeline.get(), rate, GST_FORMAT_TIME, seekType, GST_SEEK_TYPE_SET, toGstClockTime(startTime), GST_SEEK_TYPE_SET, toGstClockTime(endTime))) {
         webKitMediaSrcSetReadyForSamples(WEBKIT_MEDIA_SRC(m_source.get()), true);
         m_seeking = false;
         m_gstSeekCompleted = true;
@@ -392,24 +408,25 @@ void MediaPlayerPrivateGStreamerMSE::maybeFinishSeek()
     }
 
     if (m_seekIsPending) {
-        GST_DEBUG("[Seek] Committing pending seek to %f", m_seekTime);
+        GST_DEBUG("[Seek] Committing pending seek to %s", toString(m_seekTime).utf8().data());
         m_seekIsPending = false;
         if (!doSeek()) {
-            GST_WARNING("[Seek] Seeking to %f failed", m_seekTime);
-            m_cachedPosition = -1;
+            GST_WARNING("[Seek] Seeking to %s failed", toString(m_seekTime).utf8().data());
+            m_cachedPosition = MediaTime::invalidTime();
         }
         return;
     }
 
-    GST_DEBUG("[Seek] Seeked to %f", m_seekTime);
+    GST_DEBUG("[Seek] Seeked to %s", toString(m_seekTime).utf8().data());
 
     webKitMediaSrcSetReadyForSamples(WEBKIT_MEDIA_SRC(m_source.get()), true);
     m_seeking = false;
-    m_cachedPosition = -1;
+    m_cachedPosition = MediaTime::invalidTime();
     // The pipeline can still have a pending state. In this case a position query will fail.
     // Right now we can use m_seekTime as a fallback.
     m_canFallBackToLastFinishedSeekPosition = true;
     timeChanged();
+    m_player->readyStateChanged();
 }
 
 void MediaPlayerPrivateGStreamerMSE::updatePlaybackRate()
@@ -453,6 +470,9 @@ void MediaPlayerPrivateGStreamerMSE::setReadyState(MediaPlayer::ReadyState ready
         bool ok = changePipelineState(GST_STATE_PAUSED);
         GST_TRACE("Changed pipeline to PAUSED: %s", ok ? "Success" : "Error");
     }
+
+    if (m_readyState == MediaPlayer::HaveEnoughData && m_mediaSourceClient)
+        m_mediaSourceClient->setStartupBufferingComplete(true);
 }
 
 void MediaPlayerPrivateGStreamerMSE::waitForSeekCompleted()
@@ -489,8 +509,7 @@ void MediaPlayerPrivateGStreamerMSE::setRate(float)
 
 std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateGStreamerMSE::buffered() const
 {
-    RELEASE_ASSERT(m_mediaSource.get() != nullptr);
-    return m_mediaSource->buffered();
+    return m_mediaSource ? m_mediaSource->buffered() : std::make_unique<PlatformTimeRanges>();
 }
 
 void MediaPlayerPrivateGStreamerMSE::sourceChanged()
@@ -684,7 +703,7 @@ void MediaPlayerPrivateGStreamerMSE::asyncStateChangeDone()
 bool MediaPlayerPrivateGStreamerMSE::isTimeBuffered(const MediaTime &time) const
 {
     bool result = m_mediaSource && m_mediaSource->buffered()->contain(time);
-    GST_DEBUG("Time %f buffered? %s", time.toDouble(), result ? "Yes" : "No");
+    GST_DEBUG("Time %s buffered? %s", toString(time).utf8().data(), result ? "true" : "false");
     return result;
 }
 
@@ -699,6 +718,9 @@ bool MediaPlayerPrivateGStreamerMSE::playbackPipelineHasFutureData() const
 
 void MediaPlayerPrivateGStreamerMSE::setMediaSourceClient(Ref<MediaSourceClientGStreamerMSE> client)
 {
+    if (m_mediaSourceClient)
+        m_mediaSourceClient->clearPlayerPrivate();
+
     m_mediaSourceClient = client.ptr();
 }
 
@@ -717,7 +739,7 @@ void MediaPlayerPrivateGStreamerMSE::durationChanged()
     MediaTime previousDuration = m_mediaTimeDuration;
     m_mediaTimeDuration = m_mediaSourceClient->duration();
 
-    GST_TRACE("previous=%f, new=%f", previousDuration.toFloat(), m_mediaTimeDuration.toFloat());
+    GST_TRACE("previous=%s, new=%s", toString(previousDuration).utf8().data(), toString(m_mediaTimeDuration).utf8().data());
 
     // Avoid emiting durationchanged in the case where the previous duration was 0 because that case is already handled
     // by the HTMLMediaElement.
@@ -750,7 +772,7 @@ void MediaPlayerPrivateGStreamerMSE::getSupportedTypes(HashSet<String, ASCIICase
     types = mimeTypeCache();
 }
 
-void MediaPlayerPrivateGStreamerMSE::trackDetected(RefPtr<AppendPipeline> appendPipeline, RefPtr<WebCore::TrackPrivateBase> oldTrack, RefPtr<WebCore::TrackPrivateBase> newTrack)
+void MediaPlayerPrivateGStreamerMSE::trackDetected(RefPtr<AppendPipeline> appendPipeline, RefPtr<WebCore::TrackPrivateBase> newTrack, bool firstTrackDetected)
 {
     ASSERT(appendPipeline->track() == newTrack);
 
@@ -771,15 +793,89 @@ void MediaPlayerPrivateGStreamerMSE::trackDetected(RefPtr<AppendPipeline> append
         m_videoSize.setHeight(height);
     }
 
-    if (!oldTrack)
+    if (firstTrackDetected)
         m_playbackPipeline->attachTrack(appendPipeline->sourceBufferPrivate(), newTrack, structure, caps);
     else
-        m_playbackPipeline->reattachTrack(appendPipeline->sourceBufferPrivate(), newTrack);
+        m_playbackPipeline->reattachTrack(appendPipeline->sourceBufferPrivate(), newTrack, mediaType);
+}
+
+const static HashSet<AtomicString>& codecSet()
+{
+    static NeverDestroyed<HashSet<AtomicString>> codecTypes = []()
+    {
+        MediaPlayerPrivateGStreamerBase::initializeGStreamerAndRegisterWebKitElements();
+        HashSet<AtomicString> set;
+
+        GList* audioDecoderFactories = gst_element_factory_list_get_elements(GST_ELEMENT_FACTORY_TYPE_DECODER | GST_ELEMENT_FACTORY_TYPE_MEDIA_AUDIO, GST_RANK_MARGINAL);
+        GList* videoDecoderFactories = gst_element_factory_list_get_elements(GST_ELEMENT_FACTORY_TYPE_DECODER | GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO, GST_RANK_MARGINAL);
+
+        enum ElementType {
+            AudioDecoder = 0,
+            VideoDecoder
+        };
+        struct GstCapsWebKitMapping {
+            ElementType elementType;
+            const char* capsString;
+            Vector<AtomicString> webkitCodecs;
+        };
+
+        GstCapsWebKitMapping mapping[] = {
+            { VideoDecoder, "video/x-h264,  profile=(string){ constrained-baseline, baseline }", { "x-h264", "avc*" } },
+            { VideoDecoder, "video/mpeg, mpegversion=(int){1,2}, systemstream=(boolean)false", { "mpeg" } }
+        };
+
+        for (auto& current : mapping) {
+            GList* factories = nullptr;
+            switch (current.elementType) {
+            case AudioDecoder:
+                factories = audioDecoderFactories;
+                break;
+            case VideoDecoder:
+                factories = videoDecoderFactories;
+                break;
+            default:
+                g_assert_not_reached();
+                break;
+            }
+
+            g_assert_nonnull(factories);
+
+            if (gstRegistryHasElementForMediaType(factories, current.capsString) && factories != nullptr) {
+                if (!current.webkitCodecs.isEmpty()) {
+                    for (const auto& mimeType : current.webkitCodecs)
+                        set.add(mimeType);
+                } else
+                    set.add(AtomicString(current.capsString));
+            }
+        }
+
+        bool audioMpegSupported = false;
+        if (gstRegistryHasElementForMediaType(audioDecoderFactories, "audio/mpeg, mpegversion=(int)1, layer=(int)[1, 3]")) {
+            audioMpegSupported = true;
+            set.add(AtomicString("audio/mp3"));
+        }
+
+        if (gstRegistryHasElementForMediaType(audioDecoderFactories, "audio/mpeg, mpegversion=(int){2, 4}")) {
+            audioMpegSupported = true;
+            set.add(AtomicString("mp4a*"));
+        }
+
+        if (audioMpegSupported) {
+            set.add(AtomicString("audio/mpeg"));
+            set.add(AtomicString("audio/x-mpeg"));
+        }
+
+
+        gst_plugin_feature_list_free(audioDecoderFactories);
+        gst_plugin_feature_list_free(videoDecoderFactories);
+
+        return set;
+    }();
+    return codecTypes;
 }
 
 bool MediaPlayerPrivateGStreamerMSE::supportsCodecs(const String& codecs)
 {
-    static Vector<const char*> supportedCodecs = { "avc*", "mp4a*", "mpeg", "x-h264" };
     Vector<String> codecEntries;
     codecs.split(',', false, codecEntries);
 
@@ -792,8 +888,9 @@ bool MediaPlayerPrivateGStreamerMSE::supportsCodecs(const String& codecs)
             codec = codec.substring(slashIndex+1);
 
         const char* codecData = codec.utf8().data();
-        for (const auto& pattern : supportedCodecs) {
-            if (isCodecSupported = !fnmatch(pattern, codecData, 0))
+        for (const auto& pattern : codecSet()) {
+            isCodecSupported = !fnmatch(pattern.string().utf8().data(), codecData, 0);
+            if (isCodecSupported)
                 break;
         }
         if (!isCodecSupported)
@@ -820,12 +917,13 @@ MediaPlayer::SupportsType MediaPlayerPrivateGStreamerMSE::supportsType(const Med
     if (!parameters.isMediaSource)
         return result;
 
+    auto containerType = parameters.type.containerType();
     // Disable VPX/Opus on MSE for now, mp4/avc1 seems way more reliable currently.
-    if (parameters.type.endsWith("webm"))
+    if (containerType.endsWith("webm"))
         return result;
 
     // YouTube TV provides empty types for some videos and we want to be selected as best media engine for them.
-    if (parameters.type.isEmpty()) {
+    if (containerType.isEmpty()) {
         result = MediaPlayer::MayBeSupported;
         return result;
     }
@@ -843,14 +941,70 @@ MediaPlayer::SupportsType MediaPlayerPrivateGStreamerMSE::supportsType(const Med
         return result;
 
     // Spec says we should not return "probably" if the codecs string is empty.
-    if (mimeTypeCache().contains(parameters.type)) {
-        if (parameters.codecs.isEmpty())
+    if (mimeTypeCache().contains(containerType)) {
+        String codecs = parameters.type.parameter(ContentType::codecsParameter());
+        if (codecs.isEmpty())
             result = MediaPlayer::MayBeSupported;
         else
-            result = supportsCodecs(parameters.codecs) ? MediaPlayer::IsSupported : MediaPlayer::IsNotSupported;
+            result = supportsCodecs(codecs) ? MediaPlayer::IsSupported : MediaPlayer::IsNotSupported;
     }
 
     return extendedSupportsType(parameters, result);
+}
+
+void MediaPlayerPrivateGStreamerMSE::markEndOfStream(MediaSourcePrivate::EndOfStreamStatus status)
+{
+    if (status != MediaSourcePrivate::EosNoError)
+        return;
+
+    GST_DEBUG("Marking end of stream");
+    m_eosMarked = true;
+    updateStates();
+}
+
+void MediaPlayerPrivateGStreamerMSE::unmarkEndOfStream()
+{
+    GST_DEBUG("Unmarking end of stream");
+    m_eosPending = false;
+}
+
+MediaTime MediaPlayerPrivateGStreamerMSE::currentMediaTime() const
+{
+    MediaTime cachedPosition = m_cachedPosition;
+    MediaTime position = MediaPlayerPrivateGStreamer::currentMediaTime();
+    MediaTime playbackProgress = abs(position - cachedPosition);
+
+    if (m_eosPending && abs(position - durationMediaTime()) < MediaTime(GST_SECOND, GST_SECOND) && !playbackProgress) {
+        if (m_networkState != MediaPlayer::Loaded) {
+            m_networkState = MediaPlayer::Loaded;
+            m_player->networkStateChanged();
+        }
+
+        m_eosPending = false;
+        m_isEndReached = true;
+        position = m_mediaTimeDuration;
+        m_cachedPosition = position;
+        m_durationAtEOS = m_mediaTimeDuration;
+        m_player->timeChanged();
+    }
+    return position;
+}
+
+MediaTime MediaPlayerPrivateGStreamerMSE::maxMediaTimeSeekable() const
+{
+    if (UNLIKELY(m_errorOccured))
+        return MediaTime::zeroTime();
+
+    GST_DEBUG("maxMediaTimeSeekable");
+    MediaTime result = durationMediaTime();
+    // Infinite duration means live stream.
+    if (result.isPositiveInfinite()) {
+        MediaTime maxBufferedTime = buffered()->maximumBufferedTime();
+        // Return the highest end time reported by the buffered attribute.
+        result = maxBufferedTime.isValid() ? maxBufferedTime : MediaTime::zeroTime();
+    }
+
+    return result;
 }
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA)
@@ -897,60 +1051,42 @@ void MediaPlayerPrivateGStreamerMSE::emitOpenCDMSession()
 }
 #endif
 
-void MediaPlayerPrivateGStreamerMSE::markEndOfStream(MediaSourcePrivate::EndOfStreamStatus status)
+#if ENABLE(ENCRYPTED_MEDIA)
+void MediaPlayerPrivateGStreamerMSE::attemptToDecryptWithInstance(const CDMInstance& instance)
 {
-    if (status != MediaSourcePrivate::EosNoError)
-        return;
+    if (is<CDMInstanceClearKey>(instance)) {
+        auto& ckInstance = downcast<CDMInstanceClearKey>(instance);
+        if (ckInstance.keys().isEmpty())
+            return;
 
-    GST_DEBUG("Marking end of stream");
-    m_eosMarked = true;
-    updateStates();
-}
+        GValue keyIDList = G_VALUE_INIT, keyValueList = G_VALUE_INIT;
+        g_value_init(&keyIDList, GST_TYPE_LIST);
+        g_value_init(&keyValueList, GST_TYPE_LIST);
 
-void MediaPlayerPrivateGStreamerMSE::unmarkEndOfStream()
-{
-    GST_DEBUG("Unmarking end of stream");
-    m_eosPending = false;
-}
+        auto appendBuffer =
+            [](GValue* valueList, const SharedBuffer& buffer)
+            {
+                GValue* bufferValue = g_new0(GValue, 1);
+                g_value_init(bufferValue, GST_TYPE_BUFFER);
+                gst_value_take_buffer(bufferValue,
+                    gst_buffer_new_wrapped(g_memdup(buffer.data(), buffer.size()), buffer.size()));
+                gst_value_list_append_and_take_value(valueList, bufferValue);
+            };
 
-MediaTime MediaPlayerPrivateGStreamerMSE::currentMediaTime() const
-{
-    MediaTime cachedPosition = MediaTime::createWithFloat(m_cachedPosition);
-    MediaTime position = MediaPlayerPrivateGStreamer::currentMediaTime();
-    MediaTime playbackProgress = abs(position - cachedPosition);
-
-    if (m_eosPending && abs(position - durationMediaTime()) < MediaTime::createWithDouble(1) && !playbackProgress) {
-        if (m_networkState != MediaPlayer::Loaded) {
-            m_networkState = MediaPlayer::Loaded;
-            m_player->networkStateChanged();
+        for (auto& key : ckInstance.keys()) {
+            appendBuffer(&keyIDList, *key.keyIDData);
+            appendBuffer(&keyValueList, *key.keyValueData);
         }
 
-        m_eosPending = false;
-        m_isEndReached = true;
-        position = m_mediaTimeDuration;
-        m_cachedPosition = position.toFloat();
-        m_durationAtEOS = m_mediaTimeDuration.toFloat();
-        m_player->timeChanged();
+        GUniquePtr<GstStructure> structure(gst_structure_new_empty("drm-cipher-clearkey"));
+        gst_structure_set_value(structure.get(), "key-ids", &keyIDList);
+        gst_structure_set_value(structure.get(), "key-values", &keyValueList);
+
+        for (auto it : m_appendPipelinesMap)
+            it.value->dispatchDecryptionStructure(GUniquePtr<GstStructure>(gst_structure_copy(structure.get())));
     }
-    return position;
 }
-
-float MediaPlayerPrivateGStreamerMSE::maxTimeSeekable() const
-{
-    if (UNLIKELY(m_errorOccured))
-        return 0;
-
-    GST_DEBUG("maxTimeSeekable");
-    float result = durationMediaTime().toFloat();
-    // Infinite duration means live stream.
-    if (std::isinf(result)) {
-        MediaTime maxBufferedTime = buffered()->maximumBufferedTime();
-        // Return the highest end time reported by the buffered attribute.
-        result = maxBufferedTime.isValid() ? maxBufferedTime.toFloat() : 0;
-    }
-
-    return result;
-}
+#endif
 
 } // namespace WebCore.
 

@@ -193,12 +193,12 @@ void MediaSourceClientGStreamerMSE::flush(AtomicString trackId)
         m_playerPrivate->m_playbackPipeline->flush(trackId);
 }
 
-void MediaSourceClientGStreamerMSE::enqueueSample(PassRefPtr<MediaSample> prpSample)
+void MediaSourceClientGStreamerMSE::enqueueSample(Ref<MediaSample>&& sample)
 {
     ASSERT(WTF::isMainThread());
 
     if (m_playerPrivate)
-        m_playerPrivate->m_playbackPipeline->enqueueSample(prpSample);
+        m_playerPrivate->m_playbackPipeline->enqueueSample(WTFMove(sample));
 }
 
 GRefPtr<WebKitMediaSrc> MediaSourceClientGStreamerMSE::webKitMediaSrc()
@@ -220,6 +220,30 @@ void MediaSourceClientGStreamerMSE::clearPlayerPrivate()
     ASSERT(WTF::isMainThread());
 
     m_playerPrivate = nullptr;
+}
+
+void MediaSourceClientGStreamerMSE::flushStartupBuffers()
+{
+    ASSERT(WTF::isMainThread());
+
+    if (!m_playerPrivate)
+        return;
+
+    for (auto it : m_playerPrivate->m_appendPipelinesMap)
+        it.value->flushStartupSamples();
+}
+
+void MediaSourceClientGStreamerMSE::setStartupBufferingComplete(bool complete)
+{
+    ASSERT(WTF::isMainThread());
+
+    if (!m_playerPrivate)
+        return;
+
+    for (auto it : m_playerPrivate->m_appendPipelinesMap)
+        it.value->setStartupBufferingComplete(complete);
+
+    m_startupBufferingComplete = complete;
 }
 
 } // namespace WebCore.

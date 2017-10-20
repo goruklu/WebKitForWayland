@@ -16,6 +16,7 @@ if (ENABLE_MEDIA_STREAM)
 
         platform/mediastream/openwebrtc/MediaEndpointOwr.cpp
         platform/mediastream/openwebrtc/OpenWebRTCUtilities.cpp
+        platform/mediastream/openwebrtc/RealtimeMediaSourceOwr.cpp
         platform/mediastream/openwebrtc/RealtimeMediaSourceCenterOwr.cpp
     )
 endif ()
@@ -40,6 +41,7 @@ if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO)
         platform/graphics/gstreamer/VideoTrackPrivateGStreamer.cpp
         platform/graphics/gstreamer/WebKitWebSourceGStreamer.cpp
 
+        platform/graphics/gstreamer/eme/GStreamerEMEUtilities.cpp
         platform/graphics/gstreamer/eme/WebKitClearKeyDecryptorGStreamer.cpp
         platform/graphics/gstreamer/eme/WebKitCommonEncryptionDecryptorGStreamer.cpp
 
@@ -135,17 +137,13 @@ if (ENABLE_WEB_AUDIO)
     )
 endif ()
 
-if (ENABLE_LEGACY_ENCRYPTED_MEDIA_V1 OR ENABLE_LEGACY_ENCRYPTED_MEDIA OR ENABLE_ENCRYPTED_MEDIA)
+if (ENABLE_LEGACY_ENCRYPTED_MEDIA_V1 OR ENABLE_LEGACY_ENCRYPTED_MEDIA)
+    find_package(LibGPGError REQUIRED)
     list(APPEND WebCore_INCLUDE_DIRECTORIES
         ${LIBGCRYPT_INCLUDE_DIRS}
     )
     list(APPEND WebCore_LIBRARIES
-        ${LIBGCRYPT_LIBRARIES} -lgpg-error
-    )
-
-    list(APPEND WebCore_SOURCES
-        platform/graphics/gstreamer/eme/CDMPRSessionGStreamer.cpp
-        platform/graphics/gstreamer/eme/WebKitPlayReadyDecryptorGStreamer.cpp
+        ${LIBGCRYPT_LIBRARIES} ${LIBGPGERROR_LIBRARIES}
     )
 
     if (ENABLE_PLAYREADY)
@@ -162,7 +160,9 @@ if (ENABLE_LEGACY_ENCRYPTED_MEDIA_V1 OR ENABLE_LEGACY_ENCRYPTED_MEDIA OR ENABLE_
             endif()
         endforeach()
         list(APPEND WebCore_SOURCES
+            platform/graphics/gstreamer/eme/CDMPRSessionGStreamer.cpp
             platform/graphics/gstreamer/eme/PlayreadySession.cpp
+            platform/graphics/gstreamer/eme/WebKitPlayReadyDecryptorGStreamer.cpp
         )
     endif ()
 
@@ -170,6 +170,30 @@ if (ENABLE_LEGACY_ENCRYPTED_MEDIA_V1 OR ENABLE_LEGACY_ENCRYPTED_MEDIA OR ENABLE_
         list(APPEND WebCore_SOURCES
             platform/graphics/gstreamer/eme/CDMPrivateOpenCDM.cpp
             platform/graphics/gstreamer/eme/CDMSessionOpenCDM.cpp
+            platform/graphics/gstreamer/eme/WebKitOpenCDMDecryptorGStreamer.cpp
+            platform/graphics/gstreamer/eme/WebKitOpenCDMPlayReadyDecryptorGStreamer.cpp
+            platform/graphics/gstreamer/eme/WebKitOpenCDMWidevineDecryptorGStreamer.cpp
+        )
+    endif ()
+endif ()
+
+if (ENABLE_ENCRYPTED_MEDIA)
+    list(APPEND WebCore_INCLUDE_DIRECTORIES
+        "${WEBCORE_DIR}/platform/encryptedmedia/clearkey"
+        ${LIBGCRYPT_INCLUDE_DIRS}
+    )
+    list(APPEND WebCore_SOURCES
+        platform/encryptedmedia/clearkey/CDMClearKey.cpp
+
+        platform/graphics/gstreamer/eme/CDMFactoryGStreamer.cpp
+    )
+    list(APPEND WebCore_LIBRARIES
+        ${LIBGCRYPT_LIBRARIES} -lgpg-error
+    )
+
+    if (ENABLE_OPENCDM)
+        list(APPEND WebCore_SOURCES
+            platform/graphics/gstreamer/eme/CDMOpenCDM.cpp
             platform/graphics/gstreamer/eme/WebKitOpenCDMDecryptorGStreamer.cpp
             platform/graphics/gstreamer/eme/WebKitOpenCDMPlayReadyDecryptorGStreamer.cpp
             platform/graphics/gstreamer/eme/WebKitOpenCDMWidevineDecryptorGStreamer.cpp
@@ -185,5 +209,11 @@ if (USE_HOLE_PUNCH_EXTERNAL)
 
     list(APPEND WebCore_INCLUDE_DIRECTORIES
         "${WEBCORE_DIR}/platform/graphics/holepunch"
+    )
+endif ()
+
+if (USE_CAIRO)
+    list(APPEND WebCore_SOURCES
+        platform/graphics/gstreamer/ImageGStreamerCairo.cpp
     )
 endif ()

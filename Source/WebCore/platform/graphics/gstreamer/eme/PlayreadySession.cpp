@@ -24,7 +24,7 @@
 
 #if USE(PLAYREADY)
 #include "MediaPlayerPrivateGStreamer.h"
-#include "UUID.h"
+#include <wtf/UUID.h>
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA)
 #include "WebKitMediaKeyError.h"
@@ -32,7 +32,7 @@
 
 #include <runtime/JSCInlines.h>
 #include <runtime/TypedArrayInlines.h>
-#include <wtf/PassRefPtr.h>
+#include <wtf/RefPtr.h>
 #include <wtf/text/CString.h>
 
 GST_DEBUG_CATEGORY_EXTERN(webkit_media_playready_decrypt_debug_category);

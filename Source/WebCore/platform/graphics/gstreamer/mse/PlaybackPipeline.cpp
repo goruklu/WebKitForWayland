@@ -36,7 +36,6 @@
 #include <gst/gst.h>
 #include <wtf/MainThread.h>
 #include <wtf/RefCounted.h>
-#include <wtf/glib/GMutexLocker.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/AtomicString.h>
@@ -114,7 +113,7 @@ MediaSourcePrivate::AddStatus PlaybackPipeline::addSourceBuffer(RefPtr<SourceBuf
 
     GST_DEBUG_OBJECT(m_webKitMediaSrc.get(), "State %d", int(GST_STATE(m_webKitMediaSrc.get())));
 
-    Stream* stream = new Stream{ };
+    Stream* stream = new Stream { };
     stream->parent = m_webKitMediaSrc.get();
     stream->appsrc = gst_element_factory_make("appsrc", nullptr);
     stream->appsrcNeedDataFlag = false;
@@ -291,9 +290,19 @@ void PlaybackPipeline::attachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBu
 
     if (signal != -1)
         g_signal_emit(G_OBJECT(stream->parent), webKitMediaSrcSignals[signal], 0, nullptr);
+
+    if (caps) {
+        // Set caps to trigger early pipeline initialization
+        gst_app_src_set_caps(GST_APP_SRC(stream->appsrc), caps);
+
+        // Change the 'max_bytes' to signal internal condition and send caps down the stream
+        guint64 maxBytes = gst_app_src_get_max_bytes (GST_APP_SRC(stream->appsrc));
+        gst_app_src_set_max_bytes(GST_APP_SRC(stream->appsrc), maxBytes + 1);
+        gst_app_src_set_max_bytes(GST_APP_SRC(stream->appsrc), maxBytes);
+    }
 }
 
-void PlaybackPipeline::reattachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, RefPtr<TrackPrivateBase> trackPrivate)
+void PlaybackPipeline::reattachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, RefPtr<TrackPrivateBase> trackPrivate, const char* mediaType)
 {
     GST_DEBUG("Re-attaching track");
 
@@ -308,10 +317,6 @@ void PlaybackPipeline::reattachTrack(RefPtr<SourceBufferPrivateGStreamer> source
 
     ASSERT(stream && stream->type != Invalid);
 
-    // The caps change is managed by gst_appsrc_push_sample() in enqueueSample() and
-    // flushAndEnqueueNonDisplayingSamples(), so the caps aren't set from here.
-    GRefPtr<GstCaps> appsrcCaps = adoptGRef(gst_app_src_get_caps(GST_APP_SRC(stream->appsrc)));
-    const gchar* mediaType = gst_structure_get_name(gst_caps_get_structure(appsrcCaps.get(), 0));
     int signal = -1;
 
     GST_OBJECT_LOCK(webKitMediaSrc);
@@ -424,7 +429,7 @@ void PlaybackPipeline::flush(AtomicString trackId)
 
     GST_TRACE("Position: %" GST_TIME_FORMAT, GST_TIME_ARGS(position));
 
-    if (position == GST_CLOCK_TIME_NONE) {
+    if (!GST_CLOCK_TIME_IS_VALID(position)) {
         GST_TRACE("Can't determine position, avoiding flush");
         return;
     }
@@ -459,8 +464,8 @@ void PlaybackPipeline::flush(AtomicString trackId)
     gst_segment_do_seek(segment.get(), rate, GST_FORMAT_TIME, GST_SEEK_FLAG_NONE,
         GST_SEEK_TYPE_SET, position, GST_SEEK_TYPE_SET, stop, nullptr);
 
-    GRefPtr<GstPad> sinkPad = gst_element_get_static_pad(appsrc, "src");
-    GRefPtr<GstPad> srcPad = sinkPad ? gst_pad_get_peer(sinkPad.get()) : nullptr;
+    GRefPtr<GstPad> sinkPad = adoptGRef(gst_element_get_static_pad(appsrc, "src"));
+    GRefPtr<GstPad> srcPad = sinkPad ? adoptGRef(gst_pad_get_peer(sinkPad.get())) : nullptr;
     if (srcPad)
         gst_pad_add_probe(srcPad.get(), GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, segmentFixerProbe, nullptr, nullptr);
 
@@ -475,7 +480,7 @@ void PlaybackPipeline::flush(AtomicString trackId)
     GST_DEBUG("trackId=%s flushed", trackId.string().utf8().data());
 }
 
-void PlaybackPipeline::enqueueSample(RefPtr<MediaSample> mediaSample)
+void PlaybackPipeline::enqueueSample(Ref<MediaSample>&& mediaSample)
 {
     ASSERT(WTF::isMainThread());
 
@@ -484,10 +489,13 @@ void PlaybackPipeline::enqueueSample(RefPtr<MediaSample> mediaSample)
     GST_TRACE("enqueing sample trackId=%s PTS=%f presentationSize=%.0fx%.0f at %" GST_TIME_FORMAT " duration: %" GST_TIME_FORMAT,
         trackId.string().utf8().data(), mediaSample->presentationTime().toFloat(),
         mediaSample->presentationSize().width(), mediaSample->presentationSize().height(),
-        GST_TIME_ARGS(WebCore::toGstClockTime(mediaSample->presentationTime().toDouble())),
-        GST_TIME_ARGS(WebCore::toGstClockTime(mediaSample->duration().toDouble())));
+        GST_TIME_ARGS(WebCore::toGstClockTime(mediaSample->presentationTime())),
+        GST_TIME_ARGS(WebCore::toGstClockTime(mediaSample->duration())));
 
-    WTF::GMutexLocker<GMutex> locker(*GST_OBJECT_GET_LOCK(m_webKitMediaSrc.get()));
+    // No need to lock to access the Stream here because the only chance of conflict with this read and with the usage
+    // of the sample fields done in this method would be the deletion of the stream. However, that operation can only
+    // happen in the main thread, but we're already there. Therefore there's no conflict and locking would only cause
+    // a performance penalty on the readers working in other threads.
     Stream* stream = getStreamByTrackId(m_webKitMediaSrc.get(), trackId);
 
     if (!stream) {
@@ -500,10 +508,13 @@ void PlaybackPipeline::enqueueSample(RefPtr<MediaSample> mediaSample)
         return;
     }
 
+    // This field doesn't change after creation, no need to lock.
     GstElement* appsrc = stream->appsrc;
+
+    // Only modified by the main thread, no need to lock.
     MediaTime lastEnqueuedTime = stream->lastEnqueuedTime;
 
-    GStreamerMediaSample* sample = static_cast<GStreamerMediaSample*>(mediaSample.get());
+    GStreamerMediaSample* sample = static_cast<GStreamerMediaSample*>(mediaSample.ptr());
     if (sample->sample() && gst_sample_get_buffer(sample->sample())) {
         GRefPtr<GstSample> gstSample = sample->sample();
         GstBuffer* buffer = gst_sample_get_buffer(gstSample.get());

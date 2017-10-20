@@ -52,9 +52,12 @@ public:
     bool append(RefPtr<SourceBufferPrivateGStreamer>, const unsigned char*, unsigned);
     void removedFromMediaSource(RefPtr<SourceBufferPrivateGStreamer>);
     void flush(AtomicString);
-    void enqueueSample(PassRefPtr<MediaSample>);
+    void enqueueSample(Ref<MediaSample>&&);
 
     void clearPlayerPrivate();
+
+    void flushStartupBuffers();
+    void setStartupBufferingComplete(bool);
 
     const MediaTime& duration();
     GRefPtr<WebKitMediaSrc> webKitMediaSrc();
@@ -64,6 +67,7 @@ private:
 
     MediaPlayerPrivateGStreamerMSE* m_playerPrivate;
     MediaTime m_duration;
+    bool m_startupBufferingComplete { false };
 };
 
 } // namespace WebCore.

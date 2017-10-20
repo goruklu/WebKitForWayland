@@ -28,10 +28,7 @@
 
 #if USE(COORDINATED_GRAPHICS_THREADED)
 
-#include "GraphicsContext3D.h"
-#include "TextureMapper.h"
-#include "TransformationMatrix.h"
-#include <wtf/Condition.h>
+#include "TextureMapperGLHeaders.h"
 #include <wtf/Function.h>
 #include <wtf/Lock.h>
 #include <wtf/RunLoop.h>
@@ -44,16 +41,10 @@
 
 namespace WebCore {
 
+class IntSize;
 class TextureMapperGL;
 class TextureMapperLayer;
-class TextureMapperPlatformLayerProxy;
 class TextureMapperPlatformLayerBuffer;
-
-class TextureMapperPlatformLayerProxyProvider {
-public:
-    virtual RefPtr<TextureMapperPlatformLayerProxy> proxy() const = 0;
-    virtual void swapBuffersIfNeeded() = 0;
-};
 
 class TextureMapperPlatformLayerProxy : public ThreadSafeRefCounted<TextureMapperPlatformLayerProxy> {
     WTF_MAKE_FAST_ALLOCATED();
@@ -71,7 +62,7 @@ public:
     // the implementation of TextureMapperPlatformLayerProxyProvider should
     // aquire / release the lock explicitly to use below methods.
     Lock& lock() { return m_lock; }
-    std::unique_ptr<TextureMapperPlatformLayerBuffer> getAvailableBuffer(const IntSize&, GC3Dint internalFormat = GraphicsContext3D::DONT_CARE);
+    std::unique_ptr<TextureMapperPlatformLayerBuffer> getAvailableBuffer(const IntSize&, GLint internalFormat);
     void pushNextBuffer(std::unique_ptr<TextureMapperPlatformLayerBuffer>);
     bool isActive();
 
@@ -84,6 +75,7 @@ public:
     bool scheduleUpdateOnCompositorThread(WTF::Function<void()>&&);
 
 private:
+    void appendToUnusedBuffers(std::unique_ptr<TextureMapperPlatformLayerBuffer>);
     void scheduleReleaseUnusedBuffers();
     void releaseUnusedBuffersTimerFired();
 
@@ -96,8 +88,8 @@ private:
     Lock m_lock;
 
     Vector<std::unique_ptr<TextureMapperPlatformLayerBuffer>> m_usedBuffers;
+    std::unique_ptr<RunLoop::Timer<TextureMapperPlatformLayerProxy>> m_releaseUnusedBuffersTimer;
 
-    RunLoop::Timer<TextureMapperPlatformLayerProxy> m_releaseUnusedBuffersTimer;
 #ifndef NDEBUG
     ThreadIdentifier m_compositorThreadID { 0 };
 #endif
