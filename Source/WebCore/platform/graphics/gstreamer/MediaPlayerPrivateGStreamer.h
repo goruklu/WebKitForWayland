@@ -26,7 +26,7 @@
 #define MediaPlayerPrivateGStreamer_h
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
-#include "GRefPtrGStreamer.h"
+#include "GStreamerCommon.h"
 #include "MediaPlayerPrivateGStreamerBase.h"
 
 #include <glib.h>
@@ -195,6 +195,7 @@ protected:
     MediaTime m_seekTime;
     GRefPtr<GstElement> m_source;
     bool m_volumeAndMuteInitialized;
+    MediaTime m_previousDuration;
 
     static GstSeekFlags hardwareDependantSeekFlags();
     void readyTimerFired();

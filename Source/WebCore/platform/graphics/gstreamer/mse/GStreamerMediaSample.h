@@ -23,7 +23,7 @@
 #if ENABLE(VIDEO) && USE(GSTREAMER) && ENABLE(MEDIA_SOURCE)
 
 #include "FloatSize.h"
-#include "GRefPtrGStreamer.h"
+#include "GStreamerCommon.h"
 #include "MediaSample.h"
 #include <gst/gst.h>
 #include <wtf/PrintStream.h>
@@ -52,8 +52,8 @@ public:
     FloatSize presentationSize() const override { return m_presentationSize; }
     void offsetTimestampsBy(const MediaTime&) override;
     void setTimestamps(const MediaTime&, const MediaTime&) override { }
-    bool isDivisable() const override { return false; }
-    std::pair<RefPtr<MediaSample>, RefPtr<MediaSample>> divide(const MediaTime&) override  { return { nullptr, nullptr }; }
+    bool isDivisable() const override { return true; }
+    std::pair<RefPtr<MediaSample>, RefPtr<MediaSample>> divide(const MediaTime&) override;
     Ref<MediaSample> createNonDisplayingCopy() const override;
     SampleFlags flags() const override { return m_flags; }
     PlatformSample platformSample() override  { return PlatformSample(); }

@@ -132,19 +132,6 @@ static uint64_t nameHashForShader(const char* name, size_t length)
     return result;
 }
 
-RefPtr<GraphicsContext3D> GraphicsContext3D::createForCurrentGLContext()
-{
-    auto context = adoptRef(*new GraphicsContext3D({ }, 0, GraphicsContext3D::RenderToCurrentGLContext));
-#if USE(TEXTURE_MAPPER)
-    if (!context->m_texmapLayer)
-        return nullptr;
-#else
-    if (!context->m_private)
-        return nullptr;
-#endif
-    return WTFMove(context);
-}
-
 void GraphicsContext3D::validateDepthStencil(const char* packedDepthStencilExtension)
 {
     Extensions3D& extensions = getExtensions();
@@ -190,12 +177,7 @@ void GraphicsContext3D::paintRenderingResultsToCanvas(ImageBuffer* imageBuffer)
         }
     }
 
-#if USE(CG)
-    paintToCanvas(pixels.get(), m_currentWidth, m_currentHeight,
-                  imageBuffer->internalSize().width(), imageBuffer->internalSize().height(), imageBuffer->context());
-#else
-    paintToCanvas(pixels.get(), m_currentWidth, m_currentHeight, imageBuffer->internalSize().width(), imageBuffer->internalSize().height(), imageBuffer->context().platformContext());
-#endif
+    paintToCanvas(pixels.get(), IntSize(m_currentWidth, m_currentHeight), imageBuffer->internalSize(), imageBuffer->context());
 
 #if PLATFORM(IOS)
     endPaint();
@@ -326,8 +308,12 @@ void GraphicsContext3D::reshape(int width, int height)
 
     TemporaryOpenGLSetting scopedScissor(GL_SCISSOR_TEST, GL_FALSE);
     TemporaryOpenGLSetting scopedDither(GL_DITHER, GL_FALSE);
-    
-    bool mustRestoreFBO = reshapeFBOs(IntSize(width, height));
+
+    bool mustRestoreFBO;
+    if (m_renderStyle == RenderDirectlyToHostWindow)
+        mustRestoreFBO = false;
+    else
+        mustRestoreFBO = reshapeFBOs(IntSize(width, height));
 
     // Initialize renderbuffers to 0.
     GLfloat clearColor[] = {0, 0, 0, 0}, clearDepth = 0;

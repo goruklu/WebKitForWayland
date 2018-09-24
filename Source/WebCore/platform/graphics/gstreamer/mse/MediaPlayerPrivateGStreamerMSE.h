@@ -26,7 +26,7 @@
 
 #if ENABLE(VIDEO) && USE(GSTREAMER) && ENABLE(MEDIA_SOURCE) 
 
-#include "GRefPtrGStreamer.h"
+#include "GStreamerCommon.h"
 #include "MediaPlayerPrivateGStreamer.h"
 #include "MediaSample.h"
 #include "MediaSourceGStreamer.h"
@@ -86,25 +86,19 @@ public:
     void trackDetected(RefPtr<AppendPipeline>, RefPtr<WebCore::TrackPrivateBase>, bool firstTrackDetected);
     void notifySeekNeedsDataForTime(const MediaTime&);
 
-    static bool supportsCodecs(const String& codecs);
-
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA)
-    void dispatchDecryptionKey(GstBuffer*) override;
-#if USE(PLAYREADY)
-    void emitPlayReadySession(PlayreadySession*) override;
-#endif
-#if USE(OPENCDM)
-    void emitOpenCDMSession() override;
-#endif
-#endif
+    static bool supportsCodec(String codec);
+    static bool supportsAllCodecs(const Vector<String>& codecs);
 
 #if ENABLE(ENCRYPTED_MEDIA)
-    void attemptToDecryptWithInstance(const CDMInstance&) final;
+    void dispatchDecryptionStructure(GUniquePtr<GstStructure>&&) final;
 #endif
 
 private:
     static void getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>&);
     static MediaPlayer::SupportsType supportsType(const MediaEngineSupportParameters&);
+    static bool initializeGStreamer();
+    static void ensureWebKitGStreamerElements();
+    static HashSet<String, ASCIICaseInsensitiveHash>& mimeTypeCache();
 
     static bool isAvailable();
 

@@ -572,11 +572,6 @@ void WebChromeClient::delegatedScrollRequested(const IntPoint& scrollOffset)
 {
     m_page.pageDidRequestScroll(scrollOffset);
 }
-
-void WebChromeClient::resetUpdateAtlasForTesting()
-{
-    m_page.drawingArea()->resetUpdateAtlasForTesting();
-}
 #endif
 
 IntPoint WebChromeClient::screenToRootView(const IntPoint& point) const
@@ -1250,6 +1245,11 @@ void WebChromeClient::requestInstallMissingMediaPlugins(const String& details, c
 void WebChromeClient::didInvalidateDocumentMarkerRects()
 {
     m_page.findController().didInvalidateDocumentMarkerRects();
+}
+
+uint64_t WebChromeClient::nativeWindowID() const
+{
+    return m_page.drawingArea()->nativeWindowID();
 }
 
 } // namespace WebKit

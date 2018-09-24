@@ -22,12 +22,10 @@
 #include "config.h"
 #include "GStreamerEMEUtilities.h"
 
-#include "GRefPtrGStreamer.h"
+#include <wtf/MD5.h>
+#include <wtf/text/Base64.h>
 
-#if (ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)) && USE(GSTREAMER)
-
-GST_DEBUG_CATEGORY_EXTERN(webkit_media_player_debug);
-#define GST_CAT_DEFAULT webkit_media_player_debug
+#if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
 
 namespace WebCore {
 
@@ -40,52 +38,23 @@ std::array<const char*,2> GStreamerEMEUtilities::s_PlayReadyKeySystems = { "com.
 #endif
 
 #if USE(OPENCDM)
-const char* GStreamerEMEUtilities::s_WidevineUUID = WEBCORE_GSTREAMER_EME_UTILITIES_PLAYREADY_UUID;
+const char* GStreamerEMEUtilities::s_WidevineUUID = WEBCORE_GSTREAMER_EME_UTILITIES_WIDEVINE_UUID;
 const char* GStreamerEMEUtilities::s_WidevineKeySystem = "com.widevine.alpha";
 #endif
 
-#if GST_CHECK_VERSION(1, 5, 3)
-GstElement* GStreamerEMEUtilities::createDecryptor(const char* protectionSystem)
+#if (!defined(GST_DISABLE_GST_DEBUG))
+String GStreamerEMEUtilities::initDataMD5(const InitData& initData)
 {
-    GstElement* decryptor = nullptr;
-    GList* decryptors = gst_element_factory_list_get_elements(GST_ELEMENT_FACTORY_TYPE_DECRYPTOR, GST_RANK_MARGINAL);
+    WTF::MD5 md5;
+    md5.addBytes(static_cast<const uint8_t*>(initData.characters8()), initData.length());
 
-    GST_TRACE("looking for decryptor for %s", protectionSystem);
+    WTF::MD5::Digest digest;
+    md5.checksum(digest);
 
-    for (GList* walk = decryptors; !decryptor && walk; walk = g_list_next(walk)) {
-        GstElementFactory* factory = reinterpret_cast<GstElementFactory*>(walk->data);
-
-        GST_TRACE("checking factory %s", GST_OBJECT_NAME(factory));
-
-        for (const GList* current = gst_element_factory_get_static_pad_templates(factory); current && !decryptor; current = g_list_next(current)) {
-            GstStaticPadTemplate* staticPadTemplate = static_cast<GstStaticPadTemplate*>(current->data);
-            GRefPtr<GstCaps> caps = adoptGRef(gst_static_pad_template_get_caps(staticPadTemplate));
-            unsigned length = gst_caps_get_size(caps.get());
-
-            GST_TRACE("factory %s caps has size %u", GST_OBJECT_NAME(factory), length);
-            for (unsigned i = 0; !decryptor && i < length; ++i) {
-                GstStructure* structure = gst_caps_get_structure(caps.get(), i);
-                GST_TRACE("checking structure %s", gst_structure_get_name(structure));
-                if (gst_structure_has_field_typed(structure, GST_PROTECTION_SYSTEM_ID_CAPS_FIELD, G_TYPE_STRING)) {
-                    const char* sysId = gst_structure_get_string(structure, GST_PROTECTION_SYSTEM_ID_CAPS_FIELD);
-                    GST_TRACE("structure %s has protection system %s", gst_structure_get_name(structure), sysId);
-                    if (!g_ascii_strcasecmp(protectionSystem, sysId)) {
-                        GST_DEBUG("found decryptor %s for %s", GST_OBJECT_NAME(factory), protectionSystem);
-                        decryptor = gst_element_factory_create(factory, nullptr);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    gst_plugin_feature_list_free(decryptors);
-    GST_TRACE("returning decryptor %p", decryptor);
-    return decryptor;
+    return WTF::base64URLEncode(&digest[0], WTF::MD5::hashSize);
 }
-#else
-#error "At least a GStreamer version 1.5.3 is required to enable ENCRYPTED_MEDIA."
 #endif
 
 }
 
-#endif // (ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)) && USE(GSTREAMER)
+#endif // ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)

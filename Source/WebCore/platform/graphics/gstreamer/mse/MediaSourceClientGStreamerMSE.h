@@ -22,7 +22,7 @@
 
 #if ENABLE(VIDEO) && USE(GSTREAMER) && ENABLE(MEDIA_SOURCE)
 
-#include "GRefPtrGStreamer.h"
+#include "GStreamerCommon.h"
 #include "MediaSourcePrivate.h"
 #include "MediaSourcePrivateClient.h"
 #include "WebKitMediaSourceGStreamer.h"
@@ -56,9 +56,6 @@ public:
 
     void clearPlayerPrivate();
 
-    void flushStartupBuffers();
-    void setStartupBufferingComplete(bool);
-
     const MediaTime& duration();
     GRefPtr<WebKitMediaSrc> webKitMediaSrc();
 
@@ -67,7 +64,6 @@ private:
 
     MediaPlayerPrivateGStreamerMSE* m_playerPrivate;
     MediaTime m_duration;
-    bool m_startupBufferingComplete { false };
 };
 
 } // namespace WebCore.

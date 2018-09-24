@@ -21,10 +21,11 @@
 
 #pragma once
 
-#if (ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)) && USE(GSTREAMER)
+#if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
 
-#include <gst/gst.h>
+#include "GStreamerCommon.h"
 #include <wtf/text/WTFString.h>
+#include <wtf/Seconds.h>
 
 #define WEBCORE_GSTREAMER_EME_UTILITIES_CLEARKEY_UUID "58147ec8-0423-4659-92e6-f52c5ce8c3cc"
 #if USE(OPENCDM) || USE(PLAYREADY)
@@ -34,7 +35,12 @@
 #define WEBCORE_GSTREAMER_EME_UTILITIES_WIDEVINE_UUID "edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"
 #endif
 
+// NOTE: YouTube 2018 EME conformance tests expect this to be >=5s.
+const WTF::Seconds WEBCORE_GSTREAMER_EME_LICENSE_KEY_RESPONSE_TIMEOUT = WTF::Seconds(6);
+
 namespace WebCore {
+
+using InitData = String;
 
 class GStreamerEMEUtilities {
 
@@ -84,12 +90,31 @@ public:
 #endif
 
         ASSERT_NOT_REACHED();
-        return { };
+        return nullptr;
     }
 
-    static GstElement* createDecryptor(const char* protectionSystem);
+    static const char* uuidToKeySystem(const String& uuid)
+    {
+        if (uuid == s_ClearKeyUUID)
+            return s_ClearKeyKeySystem;
+
+#if USE(OPENCDM)
+        if (uuid == s_PlayReadyUUID)
+            return s_PlayReadyKeySystems[0];
+
+        if (uuid == s_WidevineUUID)
+            return s_WidevineKeySystem;
+#endif
+
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+#if (!defined(GST_DISABLE_GST_DEBUG))
+    static String initDataMD5(const InitData&);
+#endif
 };
 
 }
 
-#endif // (ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)) && USE(GSTREAMER)
+#endif // ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)

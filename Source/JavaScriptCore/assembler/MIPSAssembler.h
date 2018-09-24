@@ -108,10 +108,13 @@ typedef enum {
     ra = r31
 } RegisterID;
 
-// Currently, we don't have support for any special purpose registers.
 typedef enum {
-    firstInvalidSPR,
-    lastInvalidSPR = -1,
+    fir = 0,
+    fccr = 25,
+    fexr = 26,
+    fenr = 28,
+    fcsr = 31,
+    pc
 } SPRegisterID;
 
 typedef enum {
@@ -149,10 +152,6 @@ typedef enum {
     f31
 } FPRegisterID;
 
-typedef enum {
-    fcsr = 31
-} CSRegisterID;
-
 } // namespace MIPSRegisters
 
 class MIPSAssembler {
@@ -160,16 +159,15 @@ public:
     typedef MIPSRegisters::RegisterID RegisterID;
     typedef MIPSRegisters::SPRegisterID SPRegisterID;
     typedef MIPSRegisters::FPRegisterID FPRegisterID;
-    typedef MIPSRegisters::CSRegisterID CSRegisterID;
     typedef SegmentedVector<AssemblerLabel, 64> Jumps;
 
     static constexpr RegisterID firstRegister() { return MIPSRegisters::r0; }
     static constexpr RegisterID lastRegister() { return MIPSRegisters::r31; }
     static constexpr unsigned numberOfRegisters() { return lastRegister() - firstRegister() + 1; }
 
-    static constexpr SPRegisterID firstSPRegister() { return MIPSRegisters::firstInvalidSPR; }
-    static constexpr SPRegisterID lastSPRegister() { return MIPSRegisters::lastInvalidSPR; }
-    static constexpr unsigned numberOfSPRegisters() { return 0; }
+    static constexpr SPRegisterID firstSPRegister() { return MIPSRegisters::fir; }
+    static constexpr SPRegisterID lastSPRegister() { return MIPSRegisters::pc; }
+    static constexpr unsigned numberOfSPRegisters() { return lastSPRegister() - firstSPRegister() + 1; }
 
     static constexpr FPRegisterID firstFPRegister() { return MIPSRegisters::f0; }
     static constexpr FPRegisterID lastFPRegister() { return MIPSRegisters::f31; }
@@ -189,8 +187,22 @@ public:
 
     static const char* sprName(SPRegisterID id)
     {
-        // Currently, we don't have support for any special purpose registers.
-        RELEASE_ASSERT_NOT_REACHED();
+        switch (id) {
+        case MIPSRegisters::fir:
+            return "fir";
+        case MIPSRegisters::fccr:
+            return "fccr";
+        case MIPSRegisters::fexr:
+            return "fexr";
+        case MIPSRegisters::fenr:
+            return "fenr";
+        case MIPSRegisters::fcsr:
+            return "fcsr";
+        case MIPSRegisters::pc:
+            return "pc";
+        default:
+            RELEASE_ASSERT_NOT_REACHED();
+        }
     }
 
     static const char* fprName(FPRegisterID id)
@@ -227,6 +239,11 @@ public:
         OP_SH_FD = 6,
         OP_SH_FS = 11,
         OP_SH_FT = 16
+    };
+
+    // FCSR Bits
+    enum {
+        FP_CAUSE_INVALID_OPERATION = 1 << 16
     };
 
     void emitInst(MIPSWord op)
@@ -617,12 +634,6 @@ public:
         copDelayNop();
     }
 
-    void cfc1(RegisterID rt, CSRegisterID fs)
-    {
-        emitInst(0x44400000 | (rt << OP_SH_RT) | (fs << OP_SH_FS));
-        copDelayNop();
-    }
-
     void sqrtd(FPRegisterID fd, FPRegisterID fs)
     {
         emitInst(0x46200004 | (fd << OP_SH_FD) | (fs << OP_SH_FS));
@@ -725,6 +736,12 @@ public:
     void cultd(FPRegisterID fs, FPRegisterID ft)
     {
         emitInst(0x46200035 | (fs << OP_SH_FS) | (ft << OP_SH_FT));
+        copDelayNop();
+    }
+
+    void cfc1(RegisterID rt, SPRegisterID fs)
+    {
+        emitInst(0x44400000 | (rt << OP_SH_RT) | (fs << OP_SH_FS));
         copDelayNop();
     }
 

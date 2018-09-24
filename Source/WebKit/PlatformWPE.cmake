@@ -17,7 +17,8 @@ add_definitions(-DLOCALEDIR="${CMAKE_INSTALL_FULL_LOCALEDIR}")
 set(WebKit_USE_PREFIX_HEADER ON)
 
 add_custom_target(webkitwpe-forwarding-headers
-    COMMAND ${PERL_EXECUTABLE} ${WEBKIT_DIR}/Scripts/generate-forwarding-headers.pl --include-path ${WEBKIT_DIR} --output ${FORWARDING_HEADERS_DIR} --platform wpe --platform soup
+    DEPENDS ${WebKit_DERIVED_SOURCES}
+    COMMAND ${PERL_EXECUTABLE} ${WEBKIT_DIR}/Scripts/generate-forwarding-headers.pl --include-path ${WEBKIT_DIR} --include-path ${DERIVED_SOURCES_WEBKIT_DIR} --output ${FORWARDING_HEADERS_DIR} --platform wpe --platform soup
 )
 
  # These symbolic link allows includes like #include <wpe/WebkitWebView.h> which simulates installed headers.
@@ -106,7 +107,6 @@ list(APPEND WebKit_SOURCES
     Shared/CoordinatedGraphics/SimpleViewportController.cpp
 
     Shared/CoordinatedGraphics/threadedcompositor/CompositingRunLoop.cpp
-    Shared/CoordinatedGraphics/threadedcompositor/ThreadSafeCoordinatedSurface.cpp
     Shared/CoordinatedGraphics/threadedcompositor/ThreadedCompositor.cpp
     Shared/CoordinatedGraphics/threadedcompositor/ThreadedDisplayRefreshMonitor.cpp
 
@@ -146,7 +146,6 @@ list(APPEND WebKit_SOURCES
     UIProcess/API/C/soup/WKSoupSession.cpp
 
     UIProcess/API/C/wpe/WKView.cpp
-    UIProcess/API/C/wpe/WKWebAutomation.cpp
 
     UIProcess/API/glib/APIWebsiteDataStoreGLib.cpp
     UIProcess/API/glib/IconDatabase.cpp
@@ -211,10 +210,19 @@ list(APPEND WebKit_SOURCES
     UIProcess/API/wpe/WebKitScriptDialogWPE.cpp
     UIProcess/API/wpe/WebKitWebViewWPE.cpp
     UIProcess/API/wpe/WPEView.cpp
-    UIProcess/API/wpe/WPEWebAutomation.cpp
-    UIProcess/API/wpe/WPEWebAutomationClient.cpp
+
+    UIProcess/InspectorServer/HTTPRequest.cpp
+    UIProcess/InspectorServer/WebInspectorServer.cpp
+    UIProcess/InspectorServer/WebSocketServer.cpp
+    UIProcess/InspectorServer/WebSocketServerConnection.cpp
+
+    UIProcess/InspectorServer/soup/WebSocketServerSoup.cpp
+
+    UIProcess/InspectorServer/wpe/WebInspectorServerWPE.cpp
 
     UIProcess/Automation/cairo/WebAutomationSessionCairo.cpp
+
+    UIProcess/Automation/wpe/WebAutomationSessionWPE.cpp
 
     UIProcess/Launcher/glib/ProcessLauncherGLib.cpp
 
@@ -265,11 +273,9 @@ list(APPEND WebKit_SOURCES
     WebProcess/WebPage/AcceleratedDrawingArea.cpp
     WebProcess/WebPage/AcceleratedSurface.cpp
 
-    WebProcess/WebPage/CoordinatedGraphics/AreaAllocator.cpp
     WebProcess/WebPage/CoordinatedGraphics/CompositingCoordinator.cpp
     WebProcess/WebPage/CoordinatedGraphics/CoordinatedLayerTreeHost.cpp
     WebProcess/WebPage/CoordinatedGraphics/ThreadedCoordinatedLayerTreeHost.cpp
-    WebProcess/WebPage/CoordinatedGraphics/UpdateAtlas.cpp
 
     WebProcess/WebPage/gstreamer/WebPageGStreamer.cpp
 
@@ -418,10 +424,12 @@ list(APPEND WebKit_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/UIProcess/API/C/wpe"
     "${WEBKIT_DIR}/UIProcess/API/glib"
     "${WEBKIT_DIR}/UIProcess/API/wpe"
+    "${WEBKIT_DIR}/UIProcess/InspectorServer"
     "${WEBKIT_DIR}/UIProcess/Network/CustomProtocols/soup"
     "${WEBKIT_DIR}/UIProcess/gstreamer"
     "${WEBKIT_DIR}/UIProcess/linux"
     "${WEBKIT_DIR}/UIProcess/soup"
+    "${WEBKIT_DIR}/UIProcess/wpe"
     "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib"
     "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe"
     "${WEBKIT_DIR}/WebProcess/soup"
@@ -525,8 +533,17 @@ add_custom_command(
     VERBATIM
 )
 
+add_custom_command(
+    OUTPUT ${DERIVED_SOURCES_WEBINSPECTORUI_DIR}/WebKit2InspectorGResourceBundle.c
+    DEPENDS ${WEBKIT_DIR}/UIProcess/API/wpe/WebKit2InspectorGResourceBundle.xml
+            ${WEBKIT_DIR}/UIProcess/InspectorServer/front-end/inspectorPageIndex.html
+    COMMAND glib-compile-resources --generate --sourcedir=${WEBKIT_DIR}/UIProcess/InspectorServer/front-end --target=${DERIVED_SOURCES_WEBINSPECTORUI_DIR}/WebKit2InspectorGResourceBundle.c ${WEBKIT_DIR}/UIProcess/API/wpe/WebKit2InspectorGResourceBundle.xml
+    VERBATIM
+)
+
 list(APPEND WPEWebInspectorResources_DERIVED_SOURCES
     ${DERIVED_SOURCES_WEBINSPECTORUI_DIR}/InspectorGResourceBundle.c
+    ${DERIVED_SOURCES_WEBINSPECTORUI_DIR}/WebKit2InspectorGResourceBundle.c
 )
 
 list(APPEND WPEWebInspectorResources_LIBRARIES
@@ -606,6 +623,7 @@ if (EXPORT_DEPRECATED_WEBKIT2_C_API)
 
         ${WEBKIT_DIR}/UIProcess/API/C/WKBackForwardListItemRef.h
         ${WEBKIT_DIR}/UIProcess/API/C/WKBackForwardListRef.h
+        ${WEBKIT_DIR}/UIProcess/API/C/WKContextAutomationClient.h
         ${WEBKIT_DIR}/UIProcess/API/C/WKContextConfigurationRef.h
         ${WEBKIT_DIR}/UIProcess/API/C/WKContextConnectionClient.h
         ${WEBKIT_DIR}/UIProcess/API/C/WKContextDownloadClient.h
@@ -647,6 +665,8 @@ if (EXPORT_DEPRECATED_WEBKIT2_C_API)
         ${WEBKIT_DIR}/UIProcess/API/C/WKUserContentControllerRef.h
         ${WEBKIT_DIR}/UIProcess/API/C/WKUserScriptRef.h
         ${WEBKIT_DIR}/UIProcess/API/C/WKViewportAttributes.h
+        ${WEBKIT_DIR}/UIProcess/API/C/WKWebAutomationSession.h
+        ${WEBKIT_DIR}/UIProcess/API/C/WKWebAutomationSessionClient.h
         ${WEBKIT_DIR}/UIProcess/API/C/WKWindowFeaturesRef.h
 
         ${WEBKIT_DIR}/UIProcess/API/C/WKGeolocationManager.h
@@ -660,7 +680,6 @@ if (EXPORT_DEPRECATED_WEBKIT2_C_API)
         ${WEBKIT_DIR}/UIProcess/API/C/WKProxy.h
 
         ${WEBKIT_DIR}/UIProcess/API/C/wpe/WKView.h
-        ${WEBKIT_DIR}/UIProcess/API/C/wpe/WKWebAutomation.h
 
         ${WEBKIT_DIR}/UIProcess/API/C/soup/WKCookieManagerSoup.h
         ${WEBKIT_DIR}/UIProcess/API/C/soup/WKSoupSession.h

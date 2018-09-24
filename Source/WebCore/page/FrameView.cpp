@@ -4768,7 +4768,7 @@ void FrameView::adjustPageHeightDeprecated(float *newBottom, float oldTop, float
 
     }
     // Use a context with painting disabled.
-    GraphicsContext context((PlatformGraphicsContext*)nullptr);
+    GraphicsContext context(GraphicsContext::NonPaintingReasons::NoReasons);
     renderView->setTruncatedAt(static_cast<int>(floorf(oldBottom)));
     IntRect dirtyRect(0, static_cast<int>(floorf(oldTop)), renderView->layoutOverflowRect().maxX(), static_cast<int>(ceilf(oldBottom - oldTop)));
     renderView->setPrintRect(dirtyRect);
@@ -4962,6 +4962,12 @@ FloatPoint FrameView::documentToClientPoint(FloatPoint p) const
 {
     p.move(documentToClientOffset());
     return p;
+}
+
+FloatRect FrameView::clientToDocumentRect(FloatRect rect) const
+{
+    rect.move(-documentToClientOffset());
+    return rect;
 }
 
 FloatPoint FrameView::clientToDocumentPoint(FloatPoint point) const

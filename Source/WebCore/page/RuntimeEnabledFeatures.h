@@ -178,6 +178,9 @@ public:
     bool webGPUEnabled() const { return m_isWebGPUEnabled; }
 #endif
 
+    void setImageBitmapOffscreenCanvasEnabled(bool isEnabled) { m_isImageBitmapOffscreenCanvasEnabled = isEnabled; }
+    bool imageBitmapOffscreenCanvasEnabled() const { return m_isImageBitmapOffscreenCanvasEnabled; }
+
     void setCacheAPIEnabled(bool isEnabled) { m_isCacheAPIEnabled = isEnabled; }
     bool cacheAPIEnabled() const { return m_isCacheAPIEnabled; }
 
@@ -209,7 +212,7 @@ public:
     bool encryptedMediaAPIEnabled() const { return m_encryptedMediaAPIEnabled; }
 #endif
 
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA)
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
     void setLegacyEncryptedMediaAPIEnabled(bool isEnabled) { m_legacyEncryptedMediaAPIEnabled = isEnabled; }
     bool legacyEncryptedMediaAPIEnabled() const { return m_legacyEncryptedMediaAPIEnabled; }
 #endif
@@ -326,6 +329,7 @@ private:
     bool m_isWebGPUEnabled { false };
 #endif
 
+    bool m_isImageBitmapOffscreenCanvasEnabled { true };
     bool m_isCacheAPIEnabled { false };
     bool m_isFetchAPIEnabled { true };
 
@@ -339,7 +343,7 @@ private:
     bool m_encryptedMediaAPIEnabled { false };
 #endif
 
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA)
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
     bool m_legacyEncryptedMediaAPIEnabled { false };
 #endif
 

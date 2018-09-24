@@ -83,7 +83,7 @@ public:
 
     void setCookies2(PAL::SessionID, const Vector<WebCore::Cookie>& cookies);
     void getCookies2(PAL::SessionID, Function<void (API::Array*, CallbackBase::Error)>&&);
-    void didGetCookies2(Vector<WebCore::Cookie> cookies,  uint64_t callbackID);
+    void didGetCookies2(const Vector<WebCore::Cookie>&, WebKit::CallbackID);
 
     void startObservingCookieChanges(PAL::SessionID);
     void stopObservingCookieChanges(PAL::SessionID);
@@ -103,6 +103,7 @@ public:
 #if USE(SOUP)
     void setCookiePersistentStorage(const String& storagePath, uint32_t storageType);
     void getCookiePersistentStorage(String& storagePath, uint32_t& storageType) const;
+    void setLimit(uint64_t limit);
 #endif
 
     using API::Object::ref;
@@ -145,6 +146,7 @@ private:
 #if USE(SOUP)
     String m_cookiePersistentStoragePath;
     SoupCookiePersistentStorageType m_cookiePersistentStorageType;
+    uint64_t m_cookieStorageLimit { 0 };
 #endif
 };
 

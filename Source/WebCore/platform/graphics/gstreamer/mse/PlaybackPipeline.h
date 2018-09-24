@@ -27,9 +27,9 @@
 #include "WebKitMediaSourceGStreamer.h"
 #include "WebKitMediaSourceGStreamerPrivate.h"
 
+#include <GStreamerCommon.h>
 #include <gst/gst.h>
 #include <wtf/Condition.h>
-#include <wtf/glib/GRefPtr.h>
 
 namespace WTF {
 template<> GRefPtr<WebKitMediaSrc> adoptGRef(WebKitMediaSrc*);
@@ -57,8 +57,8 @@ public:
 
     MediaSourcePrivate::AddStatus addSourceBuffer(RefPtr<SourceBufferPrivateGStreamer>);
     void removeSourceBuffer(RefPtr<SourceBufferPrivateGStreamer>);
-    void attachTrack(RefPtr<SourceBufferPrivateGStreamer>, RefPtr<TrackPrivateBase>, GstStructure*, GstCaps*);
-    void reattachTrack(RefPtr<SourceBufferPrivateGStreamer>, RefPtr<TrackPrivateBase>, const char*);
+    void attachTrack(RefPtr<SourceBufferPrivateGStreamer>, RefPtr<TrackPrivateBase>, GstCaps*);
+    void reattachTrack(RefPtr<SourceBufferPrivateGStreamer>, RefPtr<TrackPrivateBase>, GstCaps*);
     void notifyDurationChanged();
 
     // From MediaSourceGStreamer.

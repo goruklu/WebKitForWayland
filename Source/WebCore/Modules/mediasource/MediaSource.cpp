@@ -503,22 +503,6 @@ ExceptionOr<void> MediaSource::setDurationInternal(const MediaTime& duration)
     if (newDuration == m_duration)
         return { };
 
-#if defined(METROLOGICAL)
-    // Implementation to pass the YouTube MSE Conformance Tests 2016, conforming to the old MSE spec:
-    // https://www.w3.org/TR/2016/CR-media-source-20160503/#duration-change-algorithm
-
-    // 4. If the new duration is less than old duration, then call remove(new duration, old duration)
-    // on all objects in sourceBuffers.
-    if (m_duration.isValid() && newDuration < m_duration) {
-        for (auto& sourceBuffer : *m_sourceBuffers) {
-            auto length = sourceBuffer->bufferedInternal().length();
-            if (length && newDuration < sourceBuffer->bufferedInternal().ranges().end(length - 1))
-                sourceBuffer->rangeRemoval(newDuration, sourceBuffer->bufferedInternal().ranges().end(length - 1));
-        }
-    }
-#else
-    // Upstream implementation, conforming to the latest MSE spec.
-
     // 2. If new duration is less than the highest presentation timestamp of any buffered coded frames
     // for all SourceBuffer objects in sourceBuffers, then throw an InvalidStateError exception and
     // abort these steps.
@@ -537,7 +521,7 @@ ExceptionOr<void> MediaSource::setDurationInternal(const MediaTime& duration)
     // 4.1. Update new duration to equal highest end time.
     if (highestEndTime.isValid() && newDuration < highestEndTime)
         newDuration = highestEndTime;
-#endif
+
     // 5. Update duration to new duration.
     m_duration = newDuration;
 
@@ -861,32 +845,12 @@ bool MediaSource::isTypeSupported(const String& type)
     if (contentType.containerType().isEmpty())
         return false;
 
-    bool ok;
-    unsigned channels = contentType.parameter("channels").toUInt(&ok);
-    if (!ok)
-        channels = 0;
-
-    float width = contentType.parameter("width").toFloat(&ok);
-    if (!ok)
-        width = 0;
-
-    float height = contentType.parameter("height").toFloat(&ok);
-    if (!ok)
-        height = 0;
-
-    float framerate = contentType.parameter("framerate").toFloat(&ok);
-    if (!ok)
-        framerate = 0;
-
     // 3. If type contains a media type or media subtype that the MediaSource does not support, then return false.
     // 4. If type contains at a codec that the MediaSource does not support, then return false.
     // 5. If the MediaSource does not support the specified combination of media type, media subtype, and codecs then return false.
     // 6. Return true.
     MediaEngineSupportParameters parameters;
     parameters.type = contentType;
-    parameters.channels = channels;
-    parameters.dimension = { width, height };
-    parameters.framerate = framerate;
     parameters.isMediaSource = true;
     MediaPlayer::SupportsType supported = MediaPlayer::supportsType(parameters, 0);
 

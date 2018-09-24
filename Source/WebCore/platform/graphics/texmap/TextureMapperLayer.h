@@ -34,7 +34,7 @@ class Region;
 class TextureMapperPaintOptions;
 class TextureMapperPlatformLayer;
 
-class TextureMapperLayer : public TextureMapperAnimation::Client {
+class WEBCORE_EXPORT TextureMapperLayer : public TextureMapperAnimation::Client {
     WTF_MAKE_NONCOPYABLE(TextureMapperLayer);
     WTF_MAKE_FAST_ALLOCATED;
 public:
@@ -115,6 +115,7 @@ public:
     void setRepaintCount(int);
     void setContentsLayer(TextureMapperPlatformLayer*);
     void setAnimations(const TextureMapperAnimations&);
+    const TextureMapperAnimations& animations() const { return m_animations; }
     void setFixedToViewport(bool);
     bool fixedToViewport() const { return m_fixedToViewport; }
     void setBackingStore(RefPtr<TextureMapperBackingStore>&&);

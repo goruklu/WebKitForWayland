@@ -182,6 +182,10 @@ using FloatBoxExtent = RectEdges<float>;
 typedef GtkWidget* PlatformWidget;
 #endif
 
+#if PLATFORM(WPE)
+struct wpe_view_backend;
+#endif
+
 #if PLATFORM(GTK) || PLATFORM(WPE)
 typedef struct OpaqueJSContext* JSGlobalContextRef;
 #endif
@@ -465,7 +469,8 @@ public:
 
     WebCore::IntSize viewSize() const;
     bool isViewVisible() const { return m_activityState & WebCore::ActivityState::IsVisible; }
-    bool isViewWindowActive() const;
+    bool isViewFocused() const { return m_activityState & WebCore::ActivityState::IsFocused; }
+    bool isViewWindowActive() const { return m_activityState & WebCore::ActivityState::WindowIsActive; }
 
     void addMIMETypeWithCustomContentProvider(const String& mimeType);
 
@@ -650,8 +655,14 @@ public:
 #if PLATFORM(GTK) || PLATFORM(WPE)
     JSGlobalContextRef javascriptGlobalContext();
 #endif
+#if PLATFORM(WPE)
+    struct wpe_view_backend* viewBackend();
+#endif
 
+    bool isProcessingMouseEvents() const;
+    void processNextQueuedMouseEvent();
     void handleMouseEvent(const NativeWebMouseEvent&);
+
     void handleWheelEvent(const NativeWebWheelEvent&);
     void handleKeyboardEvent(const NativeWebKeyboardEvent&);
 
@@ -1816,16 +1827,13 @@ private:
 
     bool m_shouldSuppressAppLinksInNextNavigationPolicyDecision { false };
 
+    Deque<NativeWebMouseEvent> m_mouseEventQueue;
     Deque<NativeWebKeyboardEvent> m_keyEventQueue;
     Deque<NativeWebWheelEvent> m_wheelEventQueue;
     Deque<std::unique_ptr<Vector<NativeWebWheelEvent>>> m_currentlyProcessedWheelEvents;
 #if ENABLE(MAC_GESTURE_EVENTS)
     Deque<NativeWebGestureEvent> m_gestureEventQueue;
 #endif
-
-    bool m_processingMouseMoveEvent { false };
-    std::unique_ptr<NativeWebMouseEvent> m_nextMouseMoveEvent;
-    std::unique_ptr<NativeWebMouseEvent> m_currentlyProcessedMouseDownEvent;
 
 #if ENABLE(TOUCH_EVENTS)
     struct TouchEventTracking {

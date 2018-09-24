@@ -194,18 +194,6 @@ SoupCookieJar* SoupNetworkSession::cookieJar() const
     return SOUP_COOKIE_JAR(soup_session_get_feature(m_soupSession.get(), SOUP_TYPE_COOKIE_JAR));
 }
 
-void SoupNetworkSession::setCache(SoupCache* cache)
-{
-   ASSERT(!soup_session_get_feature(m_soupSession.get(), SOUP_TYPE_CACHE));
-   soup_session_add_feature(m_soupSession.get(), SOUP_SESSION_FEATURE(cache));
-}
-
-SoupCache* SoupNetworkSession::cache() const
-{
-    SoupSessionFeature* soupCache = soup_session_get_feature(m_soupSession.get(), SOUP_TYPE_CACHE);
-    return soupCache ? SOUP_CACHE(soupCache) : nullptr;
-}
-
 static inline bool stringIsNumeric(const char* str)
 {
     while (*str) {
@@ -216,7 +204,8 @@ static inline bool stringIsNumeric(const char* str)
     return true;
 }
 
-void SoupNetworkSession::clearCache(const String& cacheDirectory)
+// Old versions of WebKit created this cache.
+void SoupNetworkSession::clearOldSoupCache(const String& cacheDirectory)
 {
     CString cachePath = fileSystemRepresentation(cacheDirectory);
     GUniquePtr<char> cacheFile(g_build_filename(cachePath.data(), "soup.cache2", nullptr));
@@ -272,23 +261,13 @@ void SoupNetworkSession::setProxies(const Vector<WebCore::Proxy>& proxies)
 {
 #if PLATFORM(WPE)
     const char* httpProxy = getenv("http_proxy");
-    GProxyResolver* resolver = g_wildcard_proxy_resolver_new(httpProxy);
-
-    GWildcardProxyResolver* w_resolver = G_WILDCARD_PROXY_RESOLVER(resolver);
-
-    GPtrArray* array = g_ptr_array_sized_new(proxies.size());
-    for (size_t i = 0; i < proxies.size(); ++i)
-    {
-        GWildcardProxyResolverProxy* p = g_new(GWildcardProxyResolverProxy, 1);
-        p->pattern = g_strdup(proxies[i].pattern.utf8().data());
-        p->proxy = g_strdup(proxies[i].proxy.utf8().data());
-        g_ptr_array_add(array, p);
+    const char* noProxy = getenv("no_proxy");
+    if (httpProxy) {
+        GProxyResolver* resolver = g_simple_proxy_resolver_new(httpProxy, (noProxy && strcmp(noProxy, "")) ? g_strsplit(noProxy, ",", -1) : nullptr);
+        g_object_set(m_soupSession.get(), SOUP_SESSION_PROXY_RESOLVER, resolver, nullptr);
     }
-    g_wildcard_proxy_resolver_set_proxies(w_resolver, array);
-    g_object_set(m_soupSession.get(), SOUP_SESSION_PROXY_RESOLVER, resolver, nullptr);
-#else
-    UNUSED_PARAM(proxies);
 #endif
+    UNUSED_PARAM(proxies);
 }
 
 #if PLATFORM(WPE)

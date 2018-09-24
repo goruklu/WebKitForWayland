@@ -21,7 +21,7 @@
 #include "config.h"
 #include "GStreamerMediaSample.h"
 
-#include "GStreamerUtilities.h"
+#include "GStreamerCommon.h"
 
 #if ENABLE(VIDEO) && USE(GSTREAMER) && ENABLE(MEDIA_SOURCE)
 
@@ -52,8 +52,8 @@ GStreamerMediaSample::GStreamerMediaSample(GstSample* sample, const FloatSize& p
 
     if (GST_BUFFER_PTS_IS_VALID(buffer))
         m_pts = createMediaTime(GST_BUFFER_PTS(buffer));
-    if (GST_BUFFER_DTS_IS_VALID(buffer))
-        m_dts = createMediaTime(GST_BUFFER_DTS(buffer));
+    if (GST_BUFFER_DTS_IS_VALID(buffer) || GST_BUFFER_PTS_IS_VALID(buffer))
+        m_dts = createMediaTime(GST_BUFFER_DTS_OR_PTS(buffer));
     if (GST_BUFFER_DURATION_IS_VALID(buffer))
         m_duration = createMediaTime(GST_BUFFER_DURATION(buffer));
 
@@ -96,6 +96,26 @@ void GStreamerMediaSample::offsetTimestampsBy(const MediaTime& timestampOffset)
         GST_BUFFER_PTS(buffer) = toGstClockTime(m_pts);
         GST_BUFFER_DTS(buffer) = toGstClockTime(m_dts);
     }
+}
+
+std::pair<RefPtr<MediaSample>, RefPtr<MediaSample>> GStreamerMediaSample::divide(const MediaTime& time)
+{
+    if (!isDivisable() || !time.isValid() || time <= m_pts || time >= m_pts + m_duration)
+        return { nullptr, nullptr };
+
+    GStreamerMediaSample* lowerHalf = new GStreamerMediaSample(m_sample.get(), m_presentationSize, m_trackId);
+    lowerHalf->m_pts = m_pts;
+    lowerHalf->m_dts = m_dts;
+    lowerHalf->m_duration = time - m_pts;
+    lowerHalf->m_flags = m_flags;
+
+    GStreamerMediaSample* upperHalf = new GStreamerMediaSample(m_sample.get(), m_presentationSize, m_trackId);
+    upperHalf->m_pts = time;
+    upperHalf->m_dts = m_dts + time - m_pts;
+    upperHalf->m_duration = m_pts + m_duration - time;
+    upperHalf->m_flags = m_flags;
+
+    return { adoptRef(*lowerHalf), adoptRef(*upperHalf) };
 }
 
 Ref<MediaSample> GStreamerMediaSample::createNonDisplayingCopy() const

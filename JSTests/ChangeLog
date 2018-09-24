@@ -1,3 +1,80 @@
+2018-01-27  Yusuke Suzuki  <utatane.tea@gmail.com>
+
+        DFG strength reduction fails to convert NumberToStringWithValidRadixConstant for 0 to constant '0'
+        https://bugs.webkit.org/show_bug.cgi?id=182213
+
+        Reviewed by Mark Lam.
+
+        * stress/int32-min-to-string.js: Added.
+        (shouldBe):
+        (test2):
+        (test4):
+        (test8):
+        (test16):
+        (test32):
+        * stress/zero-to-string.js: Added.
+        (shouldBe):
+        (test2):
+        (test4):
+        (test8):
+        (test16):
+        (test32):
+
+2017-12-21  Guillaume Emont  <guijemont@igalia.com>
+
+        Skip stress/splay-flash-access tests on memory limited platforms
+        https://bugs.webkit.org/show_bug.cgi?id=181086
+
+        Reviewed by Carlos Alberto Lopez Perez.
+
+        These tests use about 185M of memory, and occasionally get OOM-killed
+        on memory limited platforms.
+
+        * stress/splay-flash-access-1ms.js:
+        * stress/splay-flash-access.js:
+
+2017-12-21  Guillaume Emont  <guijemont@igalia.com>
+
+        Skip slow jsc tests on embedded platforms
+        https://bugs.webkit.org/show_bug.cgi?id=180937
+
+        Reviewed by Carlos Alberto Lopez Perez.
+
+        The tests typeProfiler/deltablue-for-of.js and
+        typeProfiler/getter-richards.js take a very long time in the
+        ftl-no-cjit-type-profiler-force-poly-proto on embedded platform, and
+        thus always timeout. They should be skipped on these platforms.
+
+        * typeProfiler/deltablue-for-of.js: Skip on arm*/mips.
+        * typeProfiler/getter-richards.js: Skip on arm*/mips.
+
+2017-12-18  Guillaume Emont  <guijemont@igalia.com>
+
+        Skip stress/call-apply-exponential-bytecode-size.js unless x86-64 or arm64
+        https://bugs.webkit.org/show_bug.cgi?id=180712
+
+        Reviewed by Michael Catanzaro.
+
+        stress/call-apply-exponential-bytecode-size.js crashes if the
+        ExecutableAllocator's fixedExecutableMemoryPoolSize is less than 64
+        MB. Currently it is 64 MB or more only on x86-64 and arm64, so we
+        should skip the test on other platforms.
+
+        * stress/call-apply-exponential-bytecode-size.js:
+
+2017-11-20  Guillaume Emont  <guijemont@igalia.com>
+
+        Skip stress/unshiftCountSlowCase-correct-postCapacity.js on embedded Linux
+        https://bugs.webkit.org/show_bug.cgi?id=179744
+
+        Reviewed by Michael Catanzaro.
+
+        This test uses too much memory for our buildbots on these platforms
+        and gets OOM-killed.
+
+        * stress/unshiftCountSlowCase-correct-postCapacity.js:
+        Skip if $memoryLimited and linux.
+
 2017-09-23  Keith Miller  <keith_miller@apple.com>
 
         Fix infinite looping test262 test

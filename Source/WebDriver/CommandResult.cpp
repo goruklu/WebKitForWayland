@@ -26,10 +26,6 @@
 #include "config.h"
 #include "CommandResult.h"
 
-#include <inspector/InspectorValues.h>
-
-using namespace Inspector;
-
 namespace WebDriver {
 
 // These error codes are specified in JSON-RPC 2.0, Section 5.1.
@@ -42,7 +38,7 @@ enum ProtocolErrorCode {
     ServerError = -32000
 };
 
-CommandResult::CommandResult(RefPtr<InspectorValue>&& result, std::optional<ErrorCode> errorCode)
+CommandResult::CommandResult(RefPtr<JSON::Value>&& result, std::optional<ErrorCode> errorCode)
     : m_errorCode(errorCode)
 {
     if (!m_errorCode) {
@@ -53,7 +49,7 @@ CommandResult::CommandResult(RefPtr<InspectorValue>&& result, std::optional<Erro
     if (!result)
         return;
 
-    RefPtr<InspectorObject> errorObject;
+    RefPtr<JSON::Object> errorObject;
     if (!result->asObject(errorObject))
         return;
 
@@ -110,6 +106,10 @@ CommandResult::CommandResult(RefPtr<InspectorValue>&& result, std::optional<Erro
             m_errorCode = ErrorCode::ElementNotSelectable;
         else if (errorName == "ScreenshotError")
             m_errorCode = ErrorCode::UnableToCaptureScreen;
+        else if (errorName == "UnexpectedAlertOpen")
+            m_errorCode = ErrorCode::UnexpectedAlertOpen;
+        else if (errorName == "TargetOutOfBounds")
+            m_errorCode = ErrorCode::MoveTargetOutOfBounds;
 
         break;
     }
@@ -136,13 +136,13 @@ unsigned CommandResult::httpStatusCode() const
     case ErrorCode::InvalidArgument:
     case ErrorCode::InvalidElementState:
     case ErrorCode::InvalidSelector:
+        return 400;
     case ErrorCode::NoSuchAlert:
+    case ErrorCode::NoSuchCookie:
+    case ErrorCode::NoSuchElement:
     case ErrorCode::NoSuchFrame:
     case ErrorCode::NoSuchWindow:
     case ErrorCode::StaleElementReference:
-        return 400;
-    case ErrorCode::NoSuchCookie:
-    case ErrorCode::NoSuchElement:
     case ErrorCode::InvalidSessionID:
     case ErrorCode::UnknownCommand:
         return 404;
@@ -150,6 +150,7 @@ unsigned CommandResult::httpStatusCode() const
     case ErrorCode::Timeout:
         return 408;
     case ErrorCode::JavascriptError:
+    case ErrorCode::MoveTargetOutOfBounds:
     case ErrorCode::SessionNotCreated:
     case ErrorCode::UnableToCaptureScreen:
     case ErrorCode::UnexpectedAlertOpen:
@@ -203,6 +204,8 @@ String CommandResult::errorString() const
         return ASCIILiteral("timeout");
     case ErrorCode::UnableToCaptureScreen:
         return ASCIILiteral("unable to capture screen");
+    case ErrorCode::MoveTargetOutOfBounds:
+        return ASCIILiteral("move target out of bounds");
     case ErrorCode::UnexpectedAlertOpen:
         return ASCIILiteral("unexpected alert open");
     case ErrorCode::UnknownCommand:

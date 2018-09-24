@@ -24,7 +24,7 @@
 
 #include "BitmapImage.h"
 #include "FloatRect.h"
-#include "GRefPtrGStreamer.h"
+#include "GStreamerCommon.h"
 
 #include <gst/gst.h>
 #include <gst/video/video-frame.h>
@@ -66,6 +66,7 @@ class ImageGStreamer : public RefCounted<ImageGStreamer> {
 
 #if USE(CAIRO)
         GstVideoFrame m_videoFrame;
+        bool m_frameMapped { false };
 #endif
     };
 }

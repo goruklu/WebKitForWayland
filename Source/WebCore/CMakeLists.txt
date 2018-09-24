@@ -680,6 +680,8 @@ set(WebCore_NON_SVG_IDL_FILES
     html/HTMLUListElement.idl
     html/HTMLUnknownElement.idl
     html/HTMLVideoElement.idl
+    html/ImageBitmap.idl
+    html/ImageBitmapOptions.idl
     html/ImageData.idl
     html/MediaController.idl
     html/MediaError.idl
@@ -757,6 +759,7 @@ set(WebCore_NON_SVG_IDL_FILES
     page/IntersectionObserverCallback.idl
     page/IntersectionObserverEntry.idl
     page/Location.idl
+    page/MemoryInfo.idl
     page/Navigator.idl
     page/NavigatorID.idl
     page/NavigatorLanguage.idl
@@ -1940,6 +1943,7 @@ set(WebCore_SOURCES
     html/HTMLVideoElement.cpp
     html/HTMLWBRElement.cpp
     html/HiddenInputType.cpp
+    html/ImageBitmap.cpp
     html/ImageData.cpp
     html/ImageDocument.cpp
     html/ImageInputType.cpp
@@ -2441,6 +2445,7 @@ set(WebCore_SOURCES
     platform/graphics/Gradient.cpp
     platform/graphics/GradientImage.cpp
     platform/graphics/GraphicsContext.cpp
+    platform/graphics/GraphicsContextImpl.cpp
     platform/graphics/GraphicsLayer.cpp
     platform/graphics/GraphicsLayerTransform.cpp
     platform/graphics/GraphicsLayerUpdater.cpp
@@ -2450,9 +2455,8 @@ set(WebCore_SOURCES
     platform/graphics/ImageBuffer.cpp
     platform/graphics/ImageDecoder.cpp
     platform/graphics/ImageFrame.cpp
-    platform/graphics/ImageFrameCache.cpp
-    platform/graphics/ImageOrientation.cpp
     platform/graphics/ImageSource.cpp
+    platform/graphics/ImageOrientation.cpp
     platform/graphics/IntPoint.cpp
     platform/graphics/IntRect.cpp
     platform/graphics/IntSize.cpp
@@ -3246,7 +3250,7 @@ set(WebCore_LIBRARIES
     PAL${DEBUG_SUFFIX}
 )
 
-if (ENABLE_LEGACY_ENCRYPTED_MEDIA_V1 OR ENABLE_LEGACY_ENCRYPTED_MEDIA)
+if (ENABLE_LEGACY_ENCRYPTED_MEDIA)
     list(APPEND WebCore_SOURCES
         Modules/encryptedmedia/legacy/LegacyCDM.cpp
         Modules/encryptedmedia/legacy/LegacyCDMPrivateClearKey.cpp
@@ -3257,8 +3261,6 @@ if (ENABLE_LEGACY_ENCRYPTED_MEDIA_V1 OR ENABLE_LEGACY_ENCRYPTED_MEDIA)
         Modules/encryptedmedia/legacy/WebKitMediaKeyNeededEvent.cpp
         Modules/encryptedmedia/legacy/WebKitMediaKeySession.cpp
         Modules/encryptedmedia/legacy/WebKitMediaKeys.cpp
-
-        html/MediaKeyEvent.cpp
     )
     list(APPEND WebCoreTestSupport_SOURCES
         testing/LegacyMockCDM.cpp
@@ -3270,7 +3272,6 @@ if (ENABLE_LEGACY_ENCRYPTED_MEDIA_V1 OR ENABLE_LEGACY_ENCRYPTED_MEDIA)
         Modules/encryptedmedia/legacy/WebKitMediaKeys.idl
 
         html/WebKitMediaKeyError.idl
-        html/MediaKeyEvent.idl
     )
 endif ()
 
@@ -3688,7 +3689,6 @@ set(WebCoreTestSupport_IDL_FILES
     testing/InternalSettings.idl
     testing/Internals.idl
     testing/MallocStatistics.idl
-    testing/MemoryInfo.idl
     testing/MockCDMFactory.idl
     testing/MockContentFilterSettings.idl
     testing/MockPageOverlay.idl

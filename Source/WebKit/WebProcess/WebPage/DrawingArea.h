@@ -138,12 +138,13 @@ public:
 
 #if USE(COORDINATED_GRAPHICS)
     virtual void didChangeViewportAttributes(WebCore::ViewportAttributes&&) = 0;
-    virtual void resetUpdateAtlasForTesting() = 0;
 #endif
 
 #if USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
     virtual void deviceOrPageScaleFactorChanged() = 0;
 #endif
+
+    virtual uint64_t nativeWindowID() const { return 0; }
 
 protected:
     DrawingArea(DrawingAreaType, WebPage&);

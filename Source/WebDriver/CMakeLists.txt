@@ -2,8 +2,6 @@ set_property(DIRECTORY . PROPERTY FOLDER "WebDriver")
 
 set(WebDriver_INCLUDE_DIRECTORIES
     "${WEBDRIVER_DIR}"
-    "${JAVASCRIPTCORE_DIR}"
-    "${JAVASCRIPTCORE_DIR}/runtime"
     "${DERIVED_SOURCES_WEBDRIVER_DIR}"
 )
 
@@ -17,12 +15,13 @@ set(WebDriver_SOURCES
 )
 
 set(WebDriver_LIBRARIES
-    JavaScriptCore
+    WTF
 )
 
 set(WebDriver_SCRIPTS
     ${WEBKIT_DIR}/UIProcess/Automation/atoms/ElementAttribute.js
     ${WEBKIT_DIR}/UIProcess/Automation/atoms/ElementDisplayed.js
+    ${WEBKIT_DIR}/UIProcess/Automation/atoms/EnterFullscreen.js
     ${WEBKIT_DIR}/UIProcess/Automation/atoms/FindNodes.js
     ${WEBKIT_DIR}/UIProcess/Automation/atoms/FormElementClear.js
     ${WEBKIT_DIR}/UIProcess/Automation/atoms/FormSubmit.js

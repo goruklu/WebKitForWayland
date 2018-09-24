@@ -84,7 +84,7 @@ void MediaSourceClientGStreamerMSE::durationChanged(const MediaTime& duration)
     ASSERT(WTF::isMainThread());
 
     GST_TRACE("duration: %f", duration.toFloat());
-    if (!duration.isValid() || duration.isPositiveInfinite() || duration.isNegativeInfinite())
+    if (!duration.isValid() || duration.isNegativeInfinite())
         return;
 
     m_duration = duration;
@@ -220,30 +220,6 @@ void MediaSourceClientGStreamerMSE::clearPlayerPrivate()
     ASSERT(WTF::isMainThread());
 
     m_playerPrivate = nullptr;
-}
-
-void MediaSourceClientGStreamerMSE::flushStartupBuffers()
-{
-    ASSERT(WTF::isMainThread());
-
-    if (!m_playerPrivate)
-        return;
-
-    for (auto it : m_playerPrivate->m_appendPipelinesMap)
-        it.value->flushStartupSamples();
-}
-
-void MediaSourceClientGStreamerMSE::setStartupBufferingComplete(bool complete)
-{
-    ASSERT(WTF::isMainThread());
-
-    if (!m_playerPrivate)
-        return;
-
-    for (auto it : m_playerPrivate->m_appendPipelinesMap)
-        it.value->setStartupBufferingComplete(complete);
-
-    m_startupBufferingComplete = complete;
 }
 
 } // namespace WebCore.

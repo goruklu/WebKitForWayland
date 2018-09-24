@@ -27,10 +27,9 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DEVICE_ORIENTATION PUBLIC OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ENCRYPTED_MEDIA PUBLIC OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GAMEPAD PUBLIC OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GEOLOCATION PUBLIC OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER PUBLIC ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INDEXED_DATABASE PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INDEXED_DATABASE_IN_WORKERS PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_ENCRYPTED_MEDIA_V1 PUBLIC OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_ENCRYPTED_MEDIA PUBLIC OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_CONTROLS_SCRIPT PUBLIC ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SOURCE PUBLIC OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MHTML PRIVATE ON)
@@ -63,6 +62,9 @@ WEBKIT_OPTION_END()
 
 SET_AND_EXPOSE_TO_BUILD(ENABLE_DEVELOPER_MODE ${DEVELOPER_MODE})
 
+# Enable the legacy inspector server.
+SET_AND_EXPOSE_TO_BUILD(ENABLE_INSPECTOR_SERVER TRUE)
+
 set(ENABLE_API_TESTS ${DEVELOPER_MODE})
 
 set(JavaScriptCore_LIBRARY_TYPE STATIC)
@@ -72,7 +74,6 @@ find_package(ICU REQUIRED)
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(GLIB 2.38.0 REQUIRED COMPONENTS gio gio-unix gobject gthread gmodule)
-find_package(GnuTLS 2.12.23 REQUIRED)
 
 find_package(Cairo 1.10.2 REQUIRED)
 find_package(Fontconfig 2.8.0 REQUIRED)
@@ -122,14 +123,6 @@ endif ()
 
 if (ENABLE_ACCELERATED_2D_CANVAS)
     find_package(CairoGL 1.10.2 REQUIRED COMPONENTS cairo-egl)
-endif ()
-
-if (ENABLE_LEGACY_ENCRYPTED_MEDIA_V1 OR ENABLE_LEGACY_ENCRYPTED_MEDIA)
-    find_package(LibGcrypt REQUIRED)
-    if (ENABLE_OPENCDM)
-        find_package(OpenCDM REQUIRED)
-        add_definitions(-DUSE_OPENCDM=1)
-    endif()
 endif ()
 
 if (ENABLE_PLAYREADY)
@@ -199,7 +192,13 @@ endif ()
 
 # Optimize binary size for release builds by removing dead sections on unix/gcc.
 if (COMPILER_IS_GCC_OR_CLANG AND UNIX AND NOT APPLE)
-    if (CMAKE_COMPILER_IS_GNUCC)
+    # Conditioned on ARM/ARM64 since those are the targets we know support section
+    # anchoring, for builds on X86 and X86-64 target, this option is not supported.
+    # It may be supported on several others aside from ARM*.
+    # The GCC documentation is poor in that it says the option is target dependent,
+    # but fails to decribe on which targets it is supported. I didn't fancy reading
+    # the source to find out.
+    if (CMAKE_COMPILER_IS_GNUCC AND (WTF_CPU_ARM64 OR WTF_CPU_ARM))
         set(CMAKE_COMPILER_SIZE_OPT_FLAGS " -finline-limit=90 -fsection-anchors")
     endif ()
     set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}${CMAKE_COMPILER_SIZE_OPT_FLAGS} -ffunction-sections -fdata-sections")

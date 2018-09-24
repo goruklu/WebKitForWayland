@@ -406,6 +406,7 @@ set(WebKit_SOURCES
     UIProcess/API/C/WKUserMediaPermissionCheck.cpp
     UIProcess/API/C/WKUserMediaPermissionRequest.cpp
     UIProcess/API/C/WKViewportAttributes.cpp
+    UIProcess/API/C/WKWebAutomationSession.cpp
     UIProcess/API/C/WKWebsiteDataStoreRef.cpp
     UIProcess/API/C/WKWebsitePolicies.cpp
     UIProcess/API/C/WKWindowFeaturesRef.cpp
@@ -415,6 +416,7 @@ set(WebKit_SOURCES
     UIProcess/Authentication/WebCredential.cpp
     UIProcess/Authentication/WebProtectionSpace.cpp
 
+    UIProcess/Automation/SimulatedInputDispatcher.cpp
     UIProcess/Automation/WebAutomationSession.cpp
 
     UIProcess/Downloads/DownloadProxy.cpp

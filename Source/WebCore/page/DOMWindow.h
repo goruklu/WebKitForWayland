@@ -31,6 +31,7 @@
 #include "EventTarget.h"
 #include "ExceptionOr.h"
 #include "FrameDestructionObserver.h"
+#include "ImageBitmap.h"
 #include "ScrollToOptions.h"
 #include "Supplementable.h"
 #include <heap/HandleTypes.h>
@@ -78,6 +79,7 @@ class StyleMedia;
 class WebKitNamespace;
 class WebKitPoint;
 
+struct ImageBitmapOptions;
 struct WindowFeatures;
 
 enum SetLocationLocking { LockHistoryBasedOnGestureState, LockHistoryAndBackForwardList };
@@ -249,6 +251,10 @@ public:
     int webkitRequestAnimationFrame(Ref<RequestAnimationFrameCallback>&&);
     void cancelAnimationFrame(int id);
 
+    // ImageBitmap
+    void createImageBitmap(ImageBitmap::Source&&, ImageBitmapOptions&&, ImageBitmap::Promise&&);
+    void createImageBitmap(ImageBitmap::Source&&, int sx, int sy, int sw, int sh, ImageBitmapOptions&&, ImageBitmap::Promise&&);
+
     // Secure Contexts
     bool isSecureContext() const;
 
@@ -294,7 +300,7 @@ public:
 #endif
 
     Performance* performance() const;
-    double nowTimestamp() const;
+    WEBCORE_EXPORT double nowTimestamp() const;
 
 #if PLATFORM(IOS)
     void incrementScrollEventListenersCount();

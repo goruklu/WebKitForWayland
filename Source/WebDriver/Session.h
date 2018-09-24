@@ -25,18 +25,14 @@
 
 #pragma once
 
+#include "Actions.h"
 #include "Capabilities.h"
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
+#include <wtf/JSONValues.h>
 #include <wtf/OptionSet.h>
 #include <wtf/RefCounted.h>
 #include <wtf/text/WTFString.h>
-
-namespace Inspector {
-class InspectorArray;
-class InspectorObject;
-class InspectorValue;
-}
 
 namespace WebDriver {
 
@@ -51,12 +47,16 @@ public:
     }
     ~Session();
 
-    const String& id() const { return m_id; }
+    const String& id() const;
     const Capabilities& capabilities() const;
+    bool isConnected() const;
+    Seconds scriptTimeout() const  { return m_scriptTimeout; }
+    Seconds pageLoadTimeout() const { return m_pageLoadTimeout; }
+    Seconds implicitWaitTimeout() const { return m_implicitWaitTimeout; }
+    static const String& webElementIdentifier();
 
     enum class FindElementsMode { Single, Multiple };
     enum class ExecuteScriptMode { Sync, Async };
-    enum class Timeout { Script, PageLoad, Implicit };
 
     struct Cookie {
         String name;
@@ -65,8 +65,10 @@ public:
         std::optional<String> domain;
         std::optional<bool> secure;
         std::optional<bool> httpOnly;
-        std::optional<unsigned> expiry;
+        std::optional<uint64_t> expiry;
     };
+
+    InputSource& getOrCreateInputSource(const String& id, InputSource::Type, std::optional<PointerType>);
 
     void waitForNavigationToComplete(Function<void (CommandResult&&)>&&);
     void createTopLevelBrowsingContext(Function<void (CommandResult&&)>&&);
@@ -84,28 +86,35 @@ public:
     void closeWindow(Function<void (CommandResult&&)>&&);
     void switchToWindow(const String& windowHandle, Function<void (CommandResult&&)>&&);
     void getWindowHandles(Function<void (CommandResult&&)>&&);
-    void switchToFrame(RefPtr<Inspector::InspectorValue>&&, Function<void (CommandResult&&)>&&);
+    void switchToFrame(RefPtr<JSON::Value>&&, Function<void (CommandResult&&)>&&);
     void switchToParentFrame(Function<void (CommandResult&&)>&&);
     void getWindowRect(Function<void (CommandResult&&)>&&);
     void setWindowRect(std::optional<double> x, std::optional<double> y, std::optional<double> width, std::optional<double> height, Function<void (CommandResult&&)>&&);
+    void maximizeWindow(Function<void (CommandResult&&)>&&);
+    void minimizeWindow(Function<void (CommandResult&&)>&&);
+    void fullscreenWindow(Function<void (CommandResult&&)>&&);
     void findElements(const String& strategy, const String& selector, FindElementsMode, const String& rootElementID, Function<void (CommandResult&&)>&&);
+    void getActiveElement(Function<void (CommandResult&&)>&&);
     void isElementSelected(const String& elementID, Function<void (CommandResult&&)>&&);
+    void getElementAttribute(const String& elementID, const String& attribute, Function<void (CommandResult&&)>&&);
+    void getElementProperty(const String& elementID, const String& attribute, Function<void (CommandResult&&)>&&);
+    void getElementCSSValue(const String& elementID, const String& cssProperty, Function<void (CommandResult&&)>&&);
     void getElementText(const String& elementID, Function<void (CommandResult&&)>&&);
     void getElementTagName(const String& elementID, Function<void (CommandResult&&)>&&);
     void getElementRect(const String& elementID, Function<void (CommandResult&&)>&&);
     void isElementEnabled(const String& elementID, Function<void (CommandResult&&)>&&);
     void isElementDisplayed(const String& elementID, Function<void (CommandResult&&)>&&);
-    void getElementAttribute(const String& elementID, const String& attribute, Function<void (CommandResult&&)>&&);
     void elementClick(const String& elementID, Function<void (CommandResult&&)>&&);
     void elementClear(const String& elementID, Function<void (CommandResult&&)>&&);
     void elementSendKeys(const String& elementID, Vector<String>&& keys, Function<void (CommandResult&&)>&&);
-    void elementSubmit(const String& elementID, Function<void (CommandResult&&)>&&);
-    void executeScript(const String& script, RefPtr<Inspector::InspectorArray>&& arguments, ExecuteScriptMode, Function<void (CommandResult&&)>&&);
+    void executeScript(const String& script, RefPtr<JSON::Array>&& arguments, ExecuteScriptMode, Function<void (CommandResult&&)>&&);
     void getAllCookies(Function<void (CommandResult&&)>&&);
     void getNamedCookie(const String& name, Function<void (CommandResult&&)>&&);
     void addCookie(const Cookie&, Function<void (CommandResult&&)>&&);
     void deleteCookie(const String& name, Function<void (CommandResult&&)>&&);
     void deleteAllCookies(Function<void (CommandResult&&)>&&);
+    void performActions(Vector<Vector<Action>>&&, Function<void (CommandResult&&)>&&);
+    void releaseActions(Function<void (CommandResult&&)>&&);
     void dismissAlert(Function<void (CommandResult&&)>&&);
     void acceptAlert(Function<void (CommandResult&&)>&&);
     void getAlertText(Function<void (CommandResult&&)>&&);
@@ -121,19 +130,20 @@ private:
     void closeAllToplevelBrowsingContexts(const String& toplevelBrowsingContext, Function<void (CommandResult&&)>&&);
 
     void getToplevelBrowsingContextRect(Function<void (CommandResult&&)>&&);
-    void moveToplevelBrowsingContextWindow(double x, double y, Function<void (CommandResult&&)>&&);
-    void resizeToplevelBrowsingContextWindow(double width, double height, Function<void (CommandResult&&)>&&);
 
     std::optional<String> pageLoadStrategyString() const;
 
     void handleUserPrompts(Function<void (CommandResult&&)>&&);
+    void handleUnexpectedAlertOpen(Function<void (CommandResult&&)>&&);
+    void dismissAndNotifyAlert(Function<void (CommandResult&&)>&&);
+    void acceptAndNotifyAlert(Function<void (CommandResult&&)>&&);
     void reportUnexpectedAlertOpen(Function<void (CommandResult&&)>&&);
 
-    RefPtr<Inspector::InspectorObject> createElement(RefPtr<Inspector::InspectorValue>&&);
-    RefPtr<Inspector::InspectorObject> createElement(const String& elementID);
-    RefPtr<Inspector::InspectorObject> extractElement(Inspector::InspectorValue&);
-    String extractElementID(Inspector::InspectorValue&);
-    RefPtr<Inspector::InspectorValue> handleScriptResult(RefPtr<Inspector::InspectorValue>&&);
+    RefPtr<JSON::Object> createElement(RefPtr<JSON::Value>&&);
+    RefPtr<JSON::Object> createElement(const String& elementID);
+    RefPtr<JSON::Object> extractElement(JSON::Value&);
+    String extractElementID(JSON::Value&);
+    RefPtr<JSON::Value> handleScriptResult(RefPtr<JSON::Value>&&);
 
     struct Point {
         int x { 0 };
@@ -154,11 +164,10 @@ private:
         ScrollIntoViewIfNeeded = 1 << 0,
         UseViewportCoordinates = 1 << 1,
     };
-    void computeElementLayout(const String& elementID, OptionSet<ElementLayoutOption>, Function<void (std::optional<Rect>&&, std::optional<Point>&&, bool, RefPtr<Inspector::InspectorObject>&&)>&&);
+    void computeElementLayout(const String& elementID, OptionSet<ElementLayoutOption>, Function<void (std::optional<Rect>&&, std::optional<Point>&&, bool, RefPtr<JSON::Object>&&)>&&);
 
     void selectOptionElement(const String& elementID, Function<void (CommandResult&&)>&&);
 
-    enum class MouseButton { None, Left, Middle, Right };
     enum class MouseInteraction { Move, Down, Up, SingleClick, DoubleClick };
     void performMouseInteraction(int x, int y, MouseButton, MouseInteraction, Function<void (CommandResult&&)>&&);
 
@@ -178,11 +187,25 @@ private:
     String virtualKeyForKeySequence(const String& keySequence, KeyModifier&);
     void performKeyboardInteractions(Vector<KeyboardInteraction>&&, Function<void (CommandResult&&)>&&);
 
+    struct InputSourceState {
+        enum class Type { Null, Key, Pointer };
+
+        Type type;
+        String subtype;
+        std::optional<MouseButton> pressedButton;
+        std::optional<String> pressedKey;
+        std::optional<String> pressedVirtualKey;
+    };
+    InputSourceState& inputSourceState(const String& id);
+
     std::unique_ptr<SessionHost> m_host;
-    Timeouts m_timeouts;
-    String m_id;
+    Seconds m_scriptTimeout;
+    Seconds m_pageLoadTimeout;
+    Seconds m_implicitWaitTimeout;
     std::optional<String> m_toplevelBrowsingContext;
     std::optional<String> m_currentBrowsingContext;
+    HashMap<String, InputSource> m_activeInputSources;
+    HashMap<String, InputSourceState> m_inputStateTable;
 };
 
 } // WebDriver

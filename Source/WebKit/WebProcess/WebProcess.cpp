@@ -216,7 +216,9 @@ void WebProcess::initializeConnection(IPC::Connection* connection)
 {
     ChildProcess::initializeConnection(connection);
 
+#if !PLATFORM(GTK) && !PLATFORM(WPE)
     connection->setShouldExitOnSyncMessageSendFailure(true);
+#endif
 
 #if HAVE(QOS_CLASSES)
     connection->setShouldBoostMainThreadOnSyncMessage(true);
@@ -662,14 +664,16 @@ void WebProcess::didReceiveMessage(IPC::Connection& connection, IPC::Decoder& de
 
 void WebProcess::didClose(IPC::Connection&)
 {
-#ifndef NDEBUG
+#if !defined(NDEBUG) || PLATFORM(GTK) || PLATFORM(WPE)
     // Close all the live pages.
     Vector<RefPtr<WebPage>> pages;
     copyValuesToVector(m_pageMap, pages);
     for (auto& page : pages)
         page->close();
     pages.clear();
+#endif
 
+#ifndef NDEBUG
     GCController::singleton().garbageCollectSoon();
     FontCache::singleton().invalidate();
     MemoryCache::singleton().setDisabled(true);

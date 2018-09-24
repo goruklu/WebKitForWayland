@@ -99,10 +99,6 @@ WK_EXPORT bool WKPreferencesGetCompositingRepaintCountersVisible(WKPreferencesRe
 WK_EXPORT void WKPreferencesSetTiledScrollingIndicatorVisible(WKPreferencesRef, bool);
 WK_EXPORT bool WKPreferencesGetTiledScrollingIndicatorVisible(WKPreferencesRef);
 
-// Defaults to true.
-WK_EXPORT void WKPreferencesSetWebGLEnabled(WKPreferencesRef, bool);
-WK_EXPORT bool WKPreferencesGetWebGLEnabled(WKPreferencesRef);
-
 // Defaults to false.
 WK_EXPORT void WKPreferencesSetForceSoftwareWebGLRendering(WKPreferencesRef, bool);
 WK_EXPORT bool WKPreferencesGetForceSoftwareWebGLRendering(WKPreferencesRef);
@@ -266,10 +262,6 @@ WK_EXPORT bool WKPreferencesGetInteractiveFormValidationEnabled(WKPreferencesRef
 // Defaults to false
 WK_EXPORT void WKPreferencesSetScrollingPerformanceLoggingEnabled(WKPreferencesRef preferencesRef, bool enabled);
 WK_EXPORT bool WKPreferencesGetScrollingPerformanceLoggingEnabled(WKPreferencesRef preferencesRef);
-
-// Defaults to true
-WK_EXPORT void WKPreferencesSetCookieEnabled(WKPreferencesRef preferences, bool enabled);
-WK_EXPORT bool WKPreferencesGetCookieEnabled(WKPreferencesRef preferences);
 
 // Defaults to true on Mac, false elsewhere
 WK_EXPORT void WKPreferencesSetPDFPluginEnabled(WKPreferencesRef preferences, bool enabled);

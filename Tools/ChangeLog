@@ -1,16 +1,100 @@
-2017-10-04  Carlos Alberto Lopez Perez  <clopez@igalia.com>
+2018-06-20  Yusuke Suzuki  <utatane.tea@gmail.com>
 
-        [JHBuild][GTK][WKE] Circular dependency between harfbuzz and freetype6
-        https://bugs.webkit.org/show_bug.cgi?id=177865
+        [GTK][WPE][Nicosia] Add name for Nicosia Painting Threads
+        https://bugs.webkit.org/show_bug.cgi?id=186836
+
+        Reviewed by Carlos Garcia Campos.
+
+        * TestWebKitAPI/Tests/WTF/WorkerPool.cpp:
+        (TestWebKitAPI::TEST):
+
+2018-06-07  Yusuke Suzuki  <utatane.tea@gmail.com>
+
+        [WTF] Add WorkerPool
+        https://bugs.webkit.org/show_bug.cgi?id=174569
+
+        Reviewed by Carlos Garcia Campos.
+
+        * TestWebKitAPI/CMakeLists.txt:
+        * TestWebKitAPI/TestWebKitAPI.xcodeproj/project.pbxproj:
+        * TestWebKitAPI/Tests/WTF/WorkerPool.cpp: Added.
+        (TestWebKitAPI::TEST):
+
+2017-12-08  Zan Dobersek  <zdobersek@igalia.com>
+
+        Unreviewed WPE build fix after r225671.
+
+        * WebKitTestRunner/InjectedBundle/wpe/TestRunnerWPE.cpp:
+        Include the ActivateFonts.h header to have a usable
+        WTR::installFakeHelvetica() function declaration.
+
+2017-12-07  Zan Dobersek  <zdobersek@igalia.com>
+
+        Unreviewed GTK+ and WPE build fix.
+
+        Add TestRunner::installFakeHelvetica(), WTR::installFakeHelvetica()
+        and WTF::uninstallFakeHelvetica() definitions, filling out the
+        declarations added in r225641. This fills up missing symbols in the
+        WKTR's InjectedBundle library, unbreaking layout tests for both
+        configurations.
+
+        * WebKitTestRunner/InjectedBundle/gtk/ActivateFontsGtk.cpp:
+        (WTR::installFakeHelvetica):
+        (WTR::uninstallFakeHelvetica):
+        * WebKitTestRunner/InjectedBundle/gtk/TestRunnerGtk.cpp:
+        (WTR::TestRunner::inspectorTestStubURL):
+        (WTR::TestRunner::installFakeHelvetica):
+        * WebKitTestRunner/InjectedBundle/wpe/ActivateFontsWPE.cpp:
+        (WTR::installFakeHelvetica):
+        (WTR::uninstallFakeHelvetica):
+        * WebKitTestRunner/InjectedBundle/wpe/TestRunnerWPE.cpp:
+        (WTR::TestRunner::installFakeHelvetica):
+
+2017-09-26  Said Abou-Hallawa  <sabouhallawa@apple.com>
+
+        Followup (r222427): SynchronizedFixedQueue should not have a public constructor
+        https://bugs.webkit.org/show_bug.cgi?id=177458
+
+        Reviewed by Tim Horton.
+
+        Fix the definition and the creation of SynchronizedFixedQueue.
+
+        * TestWebKitAPI/Tests/WTF/SynchronizedFixedQueue.cpp:
+        (TestWebKitAPI::ToUpperConverter::ToUpperConverter):
+        (TestWebKitAPI::ToUpperConverter::startProducing):
+        (TestWebKitAPI::ToUpperConverter::startConsuming):
+        (TestWebKitAPI::ToUpperConverter::stopProducing):
+        (TestWebKitAPI::ToUpperConverter::stopConsuming):
+        (TestWebKitAPI::ToUpperConverter::enqueueLower):
+
+2017-11-01  Simon Fraser  <simon.fraser@apple.com>
+
+        Misc display list and other cleanup
+        https://bugs.webkit.org/show_bug.cgi?id=179150
+
+        Reviewed by Tim Horton.
+
+        Add system trace points for display list recording.
+
+        * Tracing/SystemTracePoints.plist:
+
+2017-12-21  Guillaume Emont  <guijemont@igalia.com>
+
+        build-jsc: allow to build out of tree
+        https://bugs.webkit.org/show_bug.cgi?id=180810
+
+        Reviewed by Carlos Alberto Lopez Perez.
+
+        * Scripts/build-jsc:
+
+2017-11-10  Guillaume Emont  <guijemont@igalia.com>
+
+        build-jsc: build testmasm for all platforms using cmake
+        https://bugs.webkit.org/show_bug.cgi?id=179512
 
         Reviewed by Michael Catanzaro.
 
-        Build freetype6 without harfbuzz support.
-        This seems to be what distros like Fedora, Debian or OpenEmbedded do.
-        Also explicitly enable support for freetype and fontconfig on harfbuzz.
-
-        * gtk/jhbuild.modules: Enable also support for icu.
-        * wpe/jhbuild.modules:
+        * Scripts/build-jsc:
 
 2017-09-25  Frederik Riedel  <riedel@apple.com>
 

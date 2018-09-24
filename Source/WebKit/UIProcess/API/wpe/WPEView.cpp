@@ -39,7 +39,7 @@
 #include "WebProcessPool.h"
 #include <JavaScriptCore/JSBase.h>
 #include <stdlib.h>
-#include <wpe/view-backend.h>
+#include <wpe/wpe.h>
 
 using namespace WebKit;
 
@@ -62,7 +62,6 @@ View::View(struct wpe_view_backend* backend, const API::PageConfiguration& baseC
         preferences->setAcceleratedCompositingEnabled(true);
         preferences->setForceCompositingMode(true);
         preferences->setAccelerated2dCanvasEnabled(true);
-        preferences->setWebGLEnabled(true);
         preferences->setDeveloperExtrasEnabled(true);
     }
 
@@ -101,7 +100,12 @@ View::View(struct wpe_view_backend* backend, const API::PageConfiguration& baseC
         {
             auto& view = *reinterpret_cast<View*>(data);
             view.frameDisplayed();
-        }
+        },
+        // padding
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr
     };
     wpe_view_backend_set_backend_client(m_backend, &s_backendClient, this);
 
@@ -113,7 +117,7 @@ View::View(struct wpe_view_backend* backend, const API::PageConfiguration& baseC
             if (event->pressed
                 && event->modifiers & wpe_input_keyboard_modifier_control
                 && event->modifiers & wpe_input_keyboard_modifier_shift
-                && event->keyCode == 'G') {
+                && event->key_code == WPE_KEY_G) {
                 auto& preferences = view.page().preferences();
                 preferences.setResourceUsageOverlayVisible(!preferences.resourceUsageOverlayVisible());
                 return;
@@ -140,6 +144,11 @@ View::View(struct wpe_view_backend* backend, const API::PageConfiguration& baseC
             page.handleTouchEvent(WebKit::NativeWebTouchEvent(event, page.deviceScaleFactor()));
 #endif
         },
+        // padding
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr
     };
     wpe_view_backend_set_input_client(m_backend, &s_inputClient, this);
 

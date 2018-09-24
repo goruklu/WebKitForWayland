@@ -24,9 +24,7 @@
 
 #include "CachedResourceLoader.h"
 #include "CookieJar.h"
-#include "GRefPtrGStreamer.h"
-#include "GStreamerUtilities.h"
-#include "GUniquePtrGStreamer.h"
+#include "GStreamerCommon.h"
 #include "HTTPHeaderNames.h"
 #include "MainThreadNotifier.h"
 #include "MediaPlayer.h"
@@ -38,6 +36,7 @@
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
 #include "SharedBuffer.h"
+#include <cstdint>
 #include <gst/app/gstappsrc.h>
 #include <gst/gst.h>
 #include <gst/pbutils/missing-plugins.h>
@@ -102,6 +101,7 @@ struct _WebKitWebSrcPrivate {
     bool didPassAccessControlCheck;
 
     guint64 offset;
+    bool haveSize;
     guint64 size;
     gboolean seekable;
     bool paused;
@@ -223,6 +223,9 @@ static void webkit_web_src_init(WebKitWebSrc* src)
 
     priv->notifier = MainThreadNotifier<MainThreadSourceNotification>::create();
 
+    priv->haveSize = FALSE;
+    priv->size = 0;
+
     priv->appsrc = GST_APP_SRC(gst_element_factory_make("appsrc", nullptr));
     if (!priv->appsrc) {
         GST_ERROR_OBJECT(src, "Failed to create appsrc");
@@ -265,7 +268,6 @@ static void webkit_web_src_init(WebKitWebSrc* src)
     gst_base_src_set_automatic_eos(GST_BASE_SRC(priv->appsrc), FALSE);
 
     gst_app_src_set_caps(priv->appsrc, nullptr);
-    gst_app_src_set_size(priv->appsrc, -1);
 }
 
 static void webKitWebSrcDispose(GObject* object)
@@ -377,12 +379,11 @@ static void webKitWebSrcStop(WebKitWebSrc* src)
     priv->paused = false;
 
     priv->offset = 0;
-    priv->seekable = FALSE;
 
     if (!wasSeeking) {
-        priv->size = 0;
         priv->requestedOffset = 0;
         priv->player = nullptr;
+        priv->seekable = FALSE;
     }
 
     if (priv->appsrc) {
@@ -464,8 +465,6 @@ static void webKitWebSrcStart(WebKitWebSrc* src)
     ResourceRequest request(url);
     request.setAllowCookies(true);
     request.setFirstPartyForCookies(url);
-
-    priv->size = 0;
 
     request.setHTTPReferrer(priv->player->referrer());
 
@@ -588,7 +587,9 @@ static gboolean webKitWebSrcQueryWithParent(GstPad* pad, GstObject* parent, GstQ
     gboolean result = FALSE;
 
     switch (GST_QUERY_TYPE(query)) {
+#if !GST_CHECK_VERSION(1, 14, 1)
     case GST_QUERY_DURATION: {
+        // FIXME: This query handler should not be needed when we upgrade from 1.10.4
         GstFormat format;
 
         gst_query_parse_duration(query, &format, nullptr);
@@ -600,6 +601,7 @@ static gboolean webKitWebSrcQueryWithParent(GstPad* pad, GstObject* parent, GstQ
         }
         break;
     }
+#endif
     case GST_QUERY_URI: {
         gst_query_set_uri(query, priv->originalURI.data());
         if (!priv->redirectedURI.isNull())
@@ -870,12 +872,21 @@ void CachedResourceStreamingClient::responseReceived(PlatformMediaResource&, con
     if (length > 0 && priv->requestedOffset && response.httpStatusCode() == 206)
         length += priv->requestedOffset;
 
-    priv->size = length >= 0 ? length : 0;
     priv->seekable = length > 0 && g_ascii_strcasecmp("none", response.httpHeaderField(HTTPHeaderName::AcceptRanges).utf8().data());
 
+    GST_DEBUG_OBJECT(src, "Size: %lld, seekable: %s", length, priv->seekable ? "yes" : "no");
     // notify size/duration
-    if (length <= 0)
+    if (length > 0) {
+        if (!priv->haveSize || (static_cast<long long>(priv->size) != length)) {
+            priv->haveSize = TRUE;
+            priv->size = length;
+            gst_app_src_set_size(priv->appsrc, length);
+        }
+    } else {
         gst_app_src_set_size(priv->appsrc, -1);
+        if (!priv->seekable)
+            gst_app_src_set_stream_type(priv->appsrc, GST_APP_STREAM_TYPE_STREAM);
+    }
 
     // Signal to downstream if this is an Icecast stream.
     GRefPtr<GstCaps> caps;
@@ -950,7 +961,8 @@ void CachedResourceStreamingClient::dataReceived(PlatformMediaResource&, const c
     else
         gst_buffer_set_size(priv->buffer.get(), static_cast<gssize>(length));
 
-    GST_BUFFER_OFFSET(priv->buffer.get()) = priv->offset;
+    uint64_t startingOffset = priv->offset;
+
     if (priv->requestedOffset == priv->offset)
         priv->requestedOffset += length;
     priv->offset += length;
@@ -959,11 +971,41 @@ void CachedResourceStreamingClient::dataReceived(PlatformMediaResource&, const c
         GST_DEBUG_OBJECT(src, "Updating internal size from %" G_GUINT64_FORMAT " to %" G_GUINT64_FORMAT, priv->size, priv->offset);
         priv->size = priv->offset;
     }
-    GST_BUFFER_OFFSET_END(priv->buffer.get()) = priv->offset;
 
-    GstFlowReturn ret = gst_app_src_push_buffer(priv->appsrc, priv->buffer.leakRef());
-    if (ret != GST_FLOW_OK && ret != GST_FLOW_EOS && ret != GST_FLOW_FLUSHING)
-        GST_ELEMENT_ERROR(src, CORE, FAILED, (nullptr), (nullptr));
+    // Now split the recv'd buffer into buffers that are of a size basesrc suggests. It is important not
+    // to push buffers that are too large, otherwise incorrect buffering messages can be sent from the
+    // pipeline.
+    uint64_t blockSize = static_cast<uint64_t>(gst_base_src_get_blocksize(GST_BASE_SRC_CAST(priv->appsrc)));
+    GST_LOG_OBJECT(src, "Splitting the received buffer into %" PRIu64 " blocks", length / blockSize);
+    // FIXME: Use GstBufferLists when we upgrade to 1.14.1 instead of pushing individual buffers.
+    for (uint64_t currentOffset = 0; currentOffset < length; currentOffset += blockSize) {
+        uint64_t subBufferOffset = startingOffset + currentOffset;
+        uint64_t currentOffsetSize = std::min(blockSize, length - currentOffset);
+
+        GST_TRACE_OBJECT(src, "Create sub-buffer from [%" PRIu64 ", %" PRIu64 "]", currentOffset, currentOffset + currentOffsetSize);
+        GRefPtr<GstBuffer> subBuffer = adoptGRef(gst_buffer_copy_region(priv->buffer.get(), GST_BUFFER_COPY_ALL, currentOffset, currentOffsetSize));
+        if (UNLIKELY(!subBuffer)) {
+            GST_ELEMENT_ERROR(src, CORE, FAILED, ("Failed to allocate sub-buffer"), (nullptr));
+            break;
+        }
+
+        GST_BUFFER_OFFSET(subBuffer.get()) = subBufferOffset;
+        GST_BUFFER_OFFSET_END(subBuffer.get()) = subBufferOffset + currentOffsetSize;
+        GST_TRACE_OBJECT(src, "Set sub-buffer offset bounds [%" PRIu64 ", %" PRIu64 "]", GST_BUFFER_OFFSET(subBuffer.get()), GST_BUFFER_OFFSET_END(subBuffer.get()));
+
+        GST_TRACE_OBJECT(src, "Pushing buffer of size %" G_GSIZE_FORMAT " bytes", gst_buffer_get_size(subBuffer.get()));
+        GstFlowReturn ret = gst_app_src_push_buffer(priv->appsrc, subBuffer.leakRef());
+
+        if (UNLIKELY(ret != GST_FLOW_OK && ret != GST_FLOW_EOS && ret != GST_FLOW_FLUSHING)) {
+            GST_ELEMENT_ERROR(src, CORE, FAILED, (nullptr), (nullptr));
+            break;
+        }
+
+        if (priv->isSeeking)
+            break;
+    }
+
+    priv->buffer.clear();
 }
 
 void CachedResourceStreamingClient::accessControlCheckFailed(PlatformMediaResource&, const ResourceError& error)

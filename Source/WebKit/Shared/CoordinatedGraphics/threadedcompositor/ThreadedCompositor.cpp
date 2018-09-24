@@ -30,7 +30,9 @@
 
 #include "CompositingRunLoop.h"
 #include "ThreadedDisplayRefreshMonitor.h"
+#include "WebPage.h"
 #include <WebCore/PlatformDisplay.h>
+#include <WebCore/Settings.h>
 #include <WebCore/TransformationMatrix.h>
 #include <wtf/SetForScope.h>
 
@@ -42,22 +44,22 @@
 #include <GL/gl.h>
 #endif
 
+namespace WebKit {
 using namespace WebCore;
 
-namespace WebKit {
-
-Ref<ThreadedCompositor> ThreadedCompositor::create(Client& client, WebPage& webPage, const IntSize& viewportSize, float scaleFactor, ShouldDoFrameSync doFrameSync, TextureMapper::PaintFlags paintFlags)
+Ref<ThreadedCompositor> ThreadedCompositor::create(Client& client, ThreadedDisplayRefreshMonitor::Client& displayRefreshMonitorClient, WebPage& webPage, const IntSize& viewportSize, float scaleFactor, ShouldDoFrameSync doFrameSync, TextureMapper::PaintFlags paintFlags)
 {
-    return adoptRef(*new ThreadedCompositor(client, webPage, viewportSize, scaleFactor, doFrameSync, paintFlags));
+    return adoptRef(*new ThreadedCompositor(client, displayRefreshMonitorClient, webPage, viewportSize, scaleFactor, doFrameSync, paintFlags));
 }
 
-ThreadedCompositor::ThreadedCompositor(Client& client, WebPage& webPage, const IntSize& viewportSize, float scaleFactor, ShouldDoFrameSync doFrameSync, TextureMapper::PaintFlags paintFlags)
+ThreadedCompositor::ThreadedCompositor(Client& client, ThreadedDisplayRefreshMonitor::Client& displayRefreshMonitorClient, WebPage& webPage, const IntSize& viewportSize, float scaleFactor, ShouldDoFrameSync doFrameSync, TextureMapper::PaintFlags paintFlags)
     : m_client(client)
     , m_doFrameSync(doFrameSync)
     , m_paintFlags(paintFlags)
+    , m_nonCompositedWebGLEnabled(webPage.corePage()->settings().nonCompositedWebGLEnabled())
     , m_compositingRunLoop(std::make_unique<CompositingRunLoop>([this] { renderLayerTree(); }))
 #if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
-    , m_displayRefreshMonitor(ThreadedDisplayRefreshMonitor::create(*this))
+    , m_displayRefreshMonitor(ThreadedDisplayRefreshMonitor::create(displayRefreshMonitorClient))
 #endif
 {
     {
@@ -86,6 +88,11 @@ ThreadedCompositor::~ThreadedCompositor()
 void ThreadedCompositor::createGLContext()
 {
     ASSERT(!RunLoop::isMain());
+
+    // If nonCompositedWebGL is enabled there will be a gl context created for the window to render webgl. We can't
+    // create another context for the same window as this breaks the rendering on some platforms.
+    if (m_nonCompositedWebGLEnabled)
+        return;
 
     ASSERT(m_nativeSurfaceHandle);
 
@@ -192,8 +199,30 @@ void ThreadedCompositor::forceRepaint()
 #endif
 }
 
+void ThreadedCompositor::renderNonCompositedWebGL()
+{
+    m_client.willRenderFrame();
+
+    // Retrieve the scene attributes in a thread-safe manner.
+    // Do this in order to free the structures memory, as they are not really used in this case.
+    Vector<WebCore::CoordinatedGraphicsState> states;
+
+    {
+        LockHolder locker(m_attributes.lock);
+        states = WTFMove(m_attributes.states);
+        m_attributes.clientRendersNextFrame = true;
+    }
+
+    m_client.didRenderFrame();
+}
+
 void ThreadedCompositor::renderLayerTree()
 {
+    if (m_nonCompositedWebGLEnabled) {
+        renderNonCompositedWebGL();
+        return;
+    }
+
     if (!m_scene || !m_scene->isActive())
         return;
 
@@ -209,7 +238,6 @@ void ThreadedCompositor::renderLayerTree()
     bool drawsBackground;
     bool needsResize;
     Vector<WebCore::CoordinatedGraphicsState> states;
-    Vector<uint32_t> atlasesToRemove;
 
     {
         LockHolder locker(m_attributes.lock);
@@ -220,7 +248,6 @@ void ThreadedCompositor::renderLayerTree()
         needsResize = m_attributes.needsResize;
 
         states = WTFMove(m_attributes.states);
-        atlasesToRemove = WTFMove(m_attributes.atlasesToRemove);
 
         if (!states.isEmpty()) {
             // Client has to be notified upon finishing this scene update.
@@ -255,7 +282,6 @@ void ThreadedCompositor::renderLayerTree()
     }
 
     m_scene->applyStateChanges(states);
-    m_scene->releaseUpdateAtlases(atlasesToRemove);
     m_scene->paintToCurrentGLContext(viewportTransform, 1, FloatRect { FloatPoint { }, viewportSize },
         Color::transparent, !drawsBackground, scrollPosition, m_paintFlags);
 
@@ -307,51 +333,20 @@ void ThreadedCompositor::updateSceneState(const CoordinatedGraphicsState& state)
     m_compositingRunLoop->scheduleUpdate();
 }
 
-void ThreadedCompositor::releaseUpdateAtlases(const Vector<uint32_t>& atlasesToRemove)
-{
-    LockHolder locker(m_attributes.lock);
-    m_attributes.atlasesToRemove.appendVector(atlasesToRemove);
-    m_compositingRunLoop->scheduleUpdate();
-}
-
 #if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
 RefPtr<WebCore::DisplayRefreshMonitor> ThreadedCompositor::displayRefreshMonitor(PlatformDisplayID)
 {
     return m_displayRefreshMonitor.copyRef();
 }
 
-void ThreadedCompositor::requestDisplayRefreshMonitorUpdate()
+void ThreadedCompositor::handleDisplayRefreshMonitorUpdate()
 {
-    // This is invoked by ThreadedDisplayRefreshMonitor when a fresh update is required.
-
-    LockHolder stateLocker(m_compositingRunLoop->stateLock());
-    {
-        // coordinateUpdateCompletionWithClient is set to true in order to delay the scene update
-        // completion until the DisplayRefreshMonitor is fired on the main thread after the composition
-        // is completed.
-        LockHolder locker(m_attributes.lock);
-        m_attributes.coordinateUpdateCompletionWithClient = true;
-    }
-    m_compositingRunLoop->scheduleUpdate(stateLocker);
-}
-
-void ThreadedCompositor::handleDisplayRefreshMonitorUpdate(bool hasBeenRescheduled)
-{
-    // Retrieve the clientRendersNextFrame and coordinateUpdateCompletionWithClient.
-    bool clientRendersNextFrame { false };
+    // Retrieve coordinateUpdateCompletionWithClient.
     bool coordinateUpdateCompletionWithClient { false };
     {
         LockHolder locker(m_attributes.lock);
-        clientRendersNextFrame = std::exchange(m_attributes.clientRendersNextFrame, false);
         coordinateUpdateCompletionWithClient = std::exchange(m_attributes.coordinateUpdateCompletionWithClient, false);
     }
-
-    // If clientRendersNextFrame is true, the client is finally notified about the scene update nearing
-    // completion. The client will use this opportunity to clean up resources as appropriate. It can also
-    // perform any layer flush that was requested during the composition, or by any DisplayRefreshMonitor
-    // notifications that have been handled at this point.
-    if (clientRendersNextFrame)
-        m_client.renderNextFrame();
 
     LockHolder stateLocker(m_compositingRunLoop->stateLock());
 
@@ -360,16 +355,6 @@ void ThreadedCompositor::handleDisplayRefreshMonitorUpdate(bool hasBeenReschedul
     // or DisplayRefreshMonitor notifications.
     if (coordinateUpdateCompletionWithClient)
         m_compositingRunLoop->updateCompleted(stateLocker);
-
-    // If the DisplayRefreshMonitor was scheduled again, we immediately demand the update completion
-    // coordination (like we do in requestDisplayRefreshMonitorUpdate()) and request an update.
-    if (hasBeenRescheduled) {
-        {
-            LockHolder locker(m_attributes.lock);
-            m_attributes.coordinateUpdateCompletionWithClient = true;
-        }
-        m_compositingRunLoop->scheduleUpdate(stateLocker);
-    }
 }
 #endif
 

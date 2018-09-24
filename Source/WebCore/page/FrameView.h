@@ -225,7 +225,7 @@ public:
     float visibleContentScaleFactor() const final;
 
 #if USE(COORDINATED_GRAPHICS)
-    void setFixedVisibleContentRect(const IntRect&) final;
+    WEBCORE_EXPORT void setFixedVisibleContentRect(const IntRect&) final;
 #endif
     WEBCORE_EXPORT void setScrollPosition(const ScrollPosition&) final;
     void updateLayerPositionsAfterScrolling() final;
@@ -475,6 +475,7 @@ public:
     FloatSize documentToClientOffset() const;
     FloatRect documentToClientRect(FloatRect) const;
     FloatPoint documentToClientPoint(FloatPoint) const;
+    WEBCORE_EXPORT FloatRect clientToDocumentRect(FloatRect) const;
     WEBCORE_EXPORT FloatPoint clientToDocumentPoint(FloatPoint) const;
 
     FloatRect layoutViewportToAbsoluteRect(FloatRect) const;

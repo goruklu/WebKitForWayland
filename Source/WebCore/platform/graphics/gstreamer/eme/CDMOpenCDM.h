@@ -27,59 +27,81 @@
 #include "CDM.h"
 #include "CDMFactory.h"
 #include "CDMInstance.h"
+#include "GStreamerEMEUtilities.h"
 #include "MediaKeyStatus.h"
+#include <open_cdm.h>
 #include <wtf/HashMap.h>
-
-namespace media {
-class OpenCdm;
-};
+#include <wtf/text/StringHash.h>
 
 namespace WebCore {
 
 class CDMFactoryOpenCDM : public CDMFactory {
+private:
+    CDMFactoryOpenCDM() = default;
+    CDMFactoryOpenCDM(const CDMFactoryOpenCDM&) = delete;
+    CDMFactoryOpenCDM& operator=(const CDMFactoryOpenCDM&) = delete;
+
 public:
     static CDMFactoryOpenCDM& singleton();
 
-    virtual ~CDMFactoryOpenCDM();
+    virtual ~CDMFactoryOpenCDM() = default;
 
-    std::unique_ptr<CDMPrivate> createCDM(const String&) override;
-    bool supportsKeySystem(const String&) override;
+    virtual std::unique_ptr<CDMPrivate> createCDM(const String&) final;
+    virtual bool supportsKeySystem(const String&) final;
 
 private:
-    CDMFactoryOpenCDM();
+    media::OpenCdm m_openCDM;
 };
 
-class CDMInstanceOpenCDM : public CDMInstance {
+class CDMInstanceOpenCDM final : public CDMInstance {
+private:
+    CDMInstanceOpenCDM() = delete;
+    CDMInstanceOpenCDM(const CDMInstanceOpenCDM&) = delete;
+    CDMInstanceOpenCDM& operator=(const CDMInstanceOpenCDM&) = delete;
+
+    class Session;
+
 public:
-    CDMInstanceOpenCDM(media::OpenCdm*, const String&);
-    virtual ~CDMInstanceOpenCDM();
+    CDMInstanceOpenCDM(media::OpenCdm&, const String&);
+    virtual ~CDMInstanceOpenCDM() = default;
 
-    ImplementationType implementationType() const final { return  ImplementationType::OpenCDM; }
-    SuccessValue initializeWithConfiguration(const MediaKeySystemConfiguration&) override;
-    SuccessValue setDistinctiveIdentifiersAllowed(bool) override;
-    SuccessValue setPersistentStateAllowed(bool) override;
-    SuccessValue setServerCertificate(Ref<SharedBuffer>&&) override;
+    // Metadata getters, just for some DRM characteristics.
+    const String& keySystem() const final { return m_keySystem; }
+    ImplementationType implementationType() const final { return ImplementationType::OpenCDM; }
+    SuccessValue initializeWithConfiguration(const MediaKeySystemConfiguration&) final { return Succeeded; }
+    SuccessValue setDistinctiveIdentifiersAllowed(bool) final { return Succeeded; }
+    SuccessValue setPersistentStateAllowed(bool) final { return Succeeded; }
 
-    void requestLicense(LicenseType, const AtomicString& initDataType, Ref<SharedBuffer>&& initData, LicenseCallback) override;
-    void updateLicense(const String&, LicenseType, const SharedBuffer&, LicenseUpdateCallback) override;
-    void loadSession(LicenseType, const String&, const String&, LoadSessionCallback) override;
-    void closeSession(const String&, CloseSessionCallback) override;
-    void removeSessionData(const String&, LicenseType, RemoveSessionDataCallback) override;
-    void storeRecordOfKeyUsage(const String&) override;
+    // Operations on the DRM system.
+    SuccessValue setServerCertificate(Ref<SharedBuffer>&&) final;
 
-    const String& keySystem() const override { return m_keySystem; }
+    // Request License will automagically create a Session. The session is later on referred to with its session id.
+    void requestLicense(LicenseType, const AtomicString&, Ref<SharedBuffer>&&, LicenseCallback) final;
 
-    // FIXME: Session handling needs a lot of love here.
-    String getCurrentSessionId() const;
+    // Operations on the DRM system -> Session.
+    void updateLicense(const String&, LicenseType, const SharedBuffer&, LicenseUpdateCallback) final;
+    void loadSession(LicenseType, const String&, const String&, LoadSessionCallback) final;
+    void closeSession(const String&, CloseSessionCallback) final;
+    void removeSessionData(const String&, LicenseType, RemoveSessionDataCallback) final;
+    void storeRecordOfKeyUsage(const String&) final { }
+
+    // FIXME: For now, the init data is the only way to find a proper session id.
+    String sessionIdByInitData(const InitData&) const;
+    bool isSessionIdUsable(const String&) const;
 
 private:
-    MediaKeyStatus getKeyStatus(std::string &);
-    SessionLoadFailure getSessionLoadStatus(std::string &);
-    size_t checkMessageLength(std::string &, std::string &);
+    bool addSession(const String& sessionId, Session* session);
+    bool removeSession(const String& sessionId);
+    RefPtr<Session> lookupSession(const String& sessionId) const;
 
-    media::OpenCdm* m_openCdmSession;
-    HashMap<String, Ref<SharedBuffer>> sessionIdMap;
     String m_keySystem;
+    const char* m_mimeType;
+    media::OpenCdm m_openCDM;
+    // Protects against concurrent access to m_sessionsMap. In addition to the main thread
+    // the GStreamer decryptor elements running in the streaming threads have a need to
+    // lookup values in this map.
+    mutable Lock m_sessionMapMutex;
+    HashMap<String, RefPtr<Session>> m_sessionsMap;
 };
 
 } // namespace WebCore

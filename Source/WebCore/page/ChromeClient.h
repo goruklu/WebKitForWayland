@@ -165,7 +165,6 @@ public:
 
 #if USE(COORDINATED_GRAPHICS)
     virtual void delegatedScrollRequested(const IntPoint&) = 0;
-    virtual void resetUpdateAtlasForTesting() = 0;
 #endif
 
     virtual IntPoint screenToRootView(const IntPoint&) const = 0;
@@ -462,7 +461,8 @@ public:
     virtual void reportProcessCPUTime(Seconds, ActivityStateForCPUSampling) { }
     virtual RefPtr<Icon> createIconForFiles(const Vector<String>& /* filenames */) = 0;
 
-protected:
+    virtual uint64_t nativeWindowID() const { return 0; }
+ protected:
     virtual ~ChromeClient() { }
 };
 

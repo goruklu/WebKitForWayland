@@ -22,8 +22,7 @@
 
 #if ENABLE(VIDEO) && USE(GSTREAMER) && ENABLE(MEDIA_SOURCE)
 
-#include "GRefPtrGStreamer.h"
-#include "GUniquePtrGStreamer.h"
+#include "GStreamerCommon.h"
 #include "MediaPlayerPrivateGStreamerMSE.h"
 #include "MediaSourceClientGStreamerMSE.h"
 #include "SourceBufferPrivateGStreamer.h"
@@ -33,7 +32,7 @@
 
 namespace WebCore {
 
-#if !LOG_DISABLED
+#if !LOG_DISABLED || ENABLE(ENCRYPTED_MEDIA)
 struct PadProbeInformation {
     AppendPipeline* appendPipeline;
     const char* description;
@@ -43,16 +42,14 @@ struct PadProbeInformation {
 
 class AppendPipeline : public ThreadSafeRefCounted<AppendPipeline> {
 public:
-    enum class AppendState { Invalid, NotStarted, Ongoing, KeyNegotiation, DataStarve, Sampling, LastSample, Aborting };
+    enum class AppendState { Invalid, NotStarted, Ongoing, DataStarve, Sampling, LastSample, Aborting };
 
     AppendPipeline(Ref<MediaSourceClientGStreamerMSE>, Ref<SourceBufferPrivateGStreamer>, MediaPlayerPrivateGStreamerMSE&);
     virtual ~AppendPipeline();
 
     void handleNeedContextSyncMessage(GstMessage*);
     void handleApplicationMessage(GstMessage*);
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
-    void handleElementMessage(GstMessage*);
-#endif
+    void handleStateChangeMessage(GstMessage*);
 
     gint id();
     AppendState appendState() { return m_appendState; }
@@ -60,12 +57,6 @@ public:
 
     GstFlowReturn handleNewAppsinkSample(GstElement*);
     GstFlowReturn pushNewBuffer(GstBuffer*);
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA)
-    void dispatchDecryptionKey(GstBuffer*);
-#endif
-#if ENABLE(ENCRYPTED_MEDIA)
-    void dispatchDecryptionStructure(GUniquePtr<GstStructure>&&);
-#endif
 
     // Takes ownership of caps.
     void parseDemuxerSrcPadCaps(GstCaps*);
@@ -88,16 +79,19 @@ public:
     WebCore::MediaSourceStreamTypeGStreamer streamType() { return m_streamType; }
 
     void disconnectDemuxerSrcPadFromAppsinkFromAnyThread(GstPad*);
+    void appendPipelineDemuxerNoMorePadsFromAnyThread();
     void connectDemuxerSrcPadToAppsinkFromAnyThread(GstPad*);
     void connectDemuxerSrcPadToAppsink(GstPad*);
 
-    void transitionTo(AppendState);
+    void transitionTo(AppendState, bool isAlreadyLocked);
 
     void reportAppsrcAtLeastABufferLeft();
     void reportAppsrcNeedDataReceived();
 
-    void flushStartupSamples();
-    void setStartupBufferingComplete(bool);
+#if ENABLE(ENCRYPTED_MEDIA)
+    void cacheProtectionEvent(GRefPtr<GstEvent>&&);
+    void handleProtectedBufferProbeInformation(GstPadProbeInfo*);
+#endif
 
 private:
     void resetPipeline();
@@ -106,13 +100,8 @@ private:
     void handleAppsrcNeedDataReceived();
     void removeAppsrcDataLeavingProbe();
     void setAppsrcDataLeavingProbe();
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA)
-    void dispatchPendingDecryptionKey();
-#endif
-#if ENABLE(ENCRYPTED_MEDIA)
-    void dispatchPendingDecryptionStructure();
-#endif
-    void notifyReceivedAllPendingSamples();
+    void demuxerNoMorePads();
+    void consumeAppSinkAvailableSamples();
 
     Ref<MediaSourceClientGStreamerMSE> m_mediaSourceClient;
     Ref<SourceBufferPrivateGStreamer> m_sourceBufferPrivate;
@@ -123,20 +112,22 @@ private:
 
     MediaTime m_initialDuration;
 
-    GstFlowReturn m_flowReturn;
-
     GRefPtr<GstElement> m_pipeline;
     GRefPtr<GstBus> m_bus;
     GRefPtr<GstElement> m_appsrc;
     GRefPtr<GstElement> m_demux;
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
-    GRefPtr<GstElement> m_decryptor;
-#endif
+    GRefPtr<GstElement> m_parser; // Optional.
     // The demuxer has one src stream only, so only one appsink is needed and linked to it.
     GRefPtr<GstElement> m_appsink;
 
-    Lock m_newSampleLock;
-    Condition m_newSampleCondition;
+    // Used to avoid unnecessary notifications per sample.
+    // It is read and write from the streaming thread and wrote from the main thread.
+    // The main thread must set it to false before actually pulling samples.
+    // This strategy ensures that at any time, there are at most two notifications in the bus
+    // queue, instead of it growing unbounded.
+    // Used intentionally without locks.
+    bool m_busAlreadyNotifiedOfAvailablesamples;
+
     Lock m_padAddRemoveLock;
     Condition m_padAddRemoveCondition;
     Lock m_appendStateTransitionLock;
@@ -155,6 +146,11 @@ private:
     struct PadProbeInformation m_appsinkDataEnteringPadProbeInformation;
 #endif
 
+#if ENABLE(ENCRYPTED_MEDIA)
+    struct PadProbeInformation m_appsinkPadProtectionProbeInformation;
+    GValue m_cachedProtectionEvents;
+    bool m_isProcessingProtectionEvents { false };
+#endif
     // Keeps track of the states of append processing, to avoid performing actions inappropriate for the current state
     // (eg: processing more samples when the last one has been detected, etc.). See setAppendState() for valid
     // transitions.
@@ -168,14 +164,6 @@ private:
     RefPtr<WebCore::TrackPrivateBase> m_track;
 
     GRefPtr<GstBuffer> m_pendingBuffer;
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA_V1) || ENABLE(LEGACY_ENCRYPTED_MEDIA)
-    GRefPtr<GstBuffer> m_pendingKey;
-#endif
-#if ENABLE(ENCRYPTED_MEDIA)
-    GUniquePtr<GstStructure> m_pendingDecryptionStructure;
-#endif
-    Vector< GRefPtr<GstSample> > m_startupSamples;
-    bool m_startupBufferingComplete { false };
 };
 
 } // namespace WebCore.

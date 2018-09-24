@@ -1,3 +1,205 @@
+2018-06-13  Keith Miller  <keith_miller@apple.com>
+
+        AutomaticThread should have a way to provide a thread name
+        https://bugs.webkit.org/show_bug.cgi?id=186604
+
+        Reviewed by Filip Pizlo.
+
+        Add names for JSC's automatic threads.
+
+        * dfg/DFGWorklist.cpp:
+        * heap/Heap.cpp:
+        * jit/JITWorklist.cpp:
+        * runtime/VMTraps.cpp:
+        * wasm/WasmWorklist.cpp:
+
+2018-06-20  Guillaume Emont  <guijemont@igalia.com>
+
+        [Armv7] Linkbuffer: executableOffsetFor() fails for location 2
+        https://bugs.webkit.org/show_bug.cgi?id=186765
+
+        Reviewed by Michael Saboff.
+
+        This widens the check for 0 so that we handle that case more correctly.
+
+        * assembler/LinkBuffer.h:
+        (JSC::LinkBuffer::executableOffsetFor):
+
+2018-05-06  Yusuke Suzuki  <utatane.tea@gmail.com>
+
+        [DFG][MIPS] Simplify DFG code by increasing MIPS temporary registers
+        https://bugs.webkit.org/show_bug.cgi?id=185371
+
+        Reviewed by Mark Lam.
+
+        Since MIPS GPRInfo claims it has only 7 registers, some of DFG code exhausts registers.
+        As a result, we need to maintain separated code for MIPS. This increases DFG maintenance burden,
+        but actually MIPS have much more registers.
+
+        This patch adds $a0 - $a3 to temporary registers. This is OK since our temporary registers can be overlapped with
+        argument registers (see ARM, X86 implementations). These registers are caller-save ones, so we do not need to
+        have extra mechanism.
+
+        Then, we remove several unnecessary MIPS code in our JIT infrastructure.
+
+        * dfg/DFGByteCodeParser.cpp:
+        (JSC::DFG::ByteCodeParser::handleIntrinsicCall):
+        * dfg/DFGFixupPhase.cpp:
+        (JSC::DFG::FixupPhase::fixupNode):
+        * dfg/DFGSpeculativeJIT32_64.cpp:
+        (JSC::DFG::SpeculativeJIT::compile):
+        * jit/CCallHelpers.h:
+        * jit/GPRInfo.h:
+        (JSC::GPRInfo::toRegister):
+        (JSC::GPRInfo::toIndex):
+        * offlineasm/mips.rb:
+
+2018-01-27  Yusuke Suzuki  <utatane.tea@gmail.com>
+
+        DFG strength reduction fails to convert NumberToStringWithValidRadixConstant for 0 to constant '0'
+        https://bugs.webkit.org/show_bug.cgi?id=182213
+
+        Reviewed by Mark Lam.
+
+        toStringWithRadixInternal is originally used for the slow path if the given value is larger than radix or negative.
+        As a result, it does not accept 0 correctly, and produces an empty string. Since DFGStrengthReductionPhase uses
+        this function, it accidentally converts NumberToStringWithValidRadixConstant(0, radix) to an empty string.
+        This patch fixes toStringWithRadixInternal to accept 0. This change fixes twitch.tv's issue.
+
+        We also add a careful cast to avoid `-INT32_MIN`. It does not produce incorrect value in x86 in practice,
+        but it is UB, and a compiler may assume that the given value is never INT32_MIN and could do an incorrect optimization.
+
+        * runtime/NumberPrototype.cpp:
+        (JSC::toStringWithRadixInternal):
+
+2017-12-12  Guillaume Emont  <guijemont@igalia.com>
+
+        LLInt: reserve 16 bytes of stack on MIPS for native calls
+        https://bugs.webkit.org/show_bug.cgi?id=180653
+
+        Reviewed by Carlos Alberto Lopez Perez.
+
+        * llint/LowLevelInterpreter32_64.asm:
+        On MIPS, substract 24 from the stack pointer (16 for calling
+        convention + 8 to be 16-aligned) instead of the 8 on other platforms
+        (for alignment).
+
+2017-11-29  Stanislav Ocovaj  <stanislav.ocovaj@rt-rk.com>
+
+        [MIPS][JSC] Implement MacroAssembler::probe support on MIPS
+        https://bugs.webkit.org/show_bug.cgi?id=175447
+
+        Reviewed by Carlos Alberto Lopez Perez.
+
+        This patch allows DFG JIT to be enabled on MIPS platforms.
+
+        * Sources.txt:
+        * assembler/MIPSAssembler.h:
+        (JSC::MIPSAssembler::lastSPRegister):
+        (JSC::MIPSAssembler::numberOfSPRegisters):
+        (JSC::MIPSAssembler::sprName):
+        * assembler/MacroAssemblerMIPS.cpp: Added.
+        (JSC::MacroAssembler::probe):
+        * assembler/ProbeContext.cpp:
+        (JSC::Probe::executeProbe):
+        * assembler/ProbeContext.h:
+        (JSC::Probe::CPUState::pc):
+        * assembler/testmasm.cpp:
+        (JSC::isSpecialGPR):
+        (JSC::testProbePreservesGPRS):
+        (JSC::testProbeModifiesStackPointer):
+        (JSC::testProbeModifiesStackValues):
+
+2017-11-14  Guillaume Emont  <guijemont@igalia.com>
+
+        REGRESSION(r224623) [MIPS] branchTruncateDoubleToInt32() doesn't set return register when branching
+        https://bugs.webkit.org/show_bug.cgi?id=179563
+
+        Reviewed by Carlos Alberto Lopez Perez.
+
+        When run with BranchIfTruncateSuccessful,
+        branchTruncateDoubleToInt32() should set the destination register
+        before branching.
+        This change also removes branchTruncateDoubleToUInt32() as it is
+        deprecated (see r160205), merges branchOnTruncateResult() into
+        branchTruncateDoubleToInt32() and adds test cases in testmasm.
+
+        * assembler/MacroAssemblerMIPS.h:
+        (JSC::MacroAssemblerMIPS::branchOnTruncateResult): Deleted.
+        (JSC::MacroAssemblerMIPS::branchTruncateDoubleToInt32):
+        Properly set dest before branching.
+        (JSC::MacroAssemblerMIPS::branchTruncateDoubleToUInt32): Deleted.
+        * assembler/testmasm.cpp:
+        (JSC::testBranchTruncateDoubleToInt32):
+        (JSC::run):
+        Add tests for branchTruncateDoubleToInt32().
+
+2017-11-13  Guillaume Emont  <guijemont@igalia.com>
+
+        [JSC] Remove ARM implementation of branchTruncateDoubleToUInt32
+        https://bugs.webkit.org/show_bug.cgi?id=179542
+
+        Reviewed by Alex Christensen.
+
+        * assembler/MacroAssemblerARM.h:
+        (JSC::MacroAssemblerARM::branchTruncateDoubleToUint32): Removed.
+
+2017-11-09  Guillaume Emont  <guijemont@igalia.com>
+
+        [JSC][MIPS] Use fcsr to check the validity of the result of trunc.w.d
+        https://bugs.webkit.org/show_bug.cgi?id=179446
+
+        Reviewed by Žan Doberšek.
+
+        The trunc.w.d mips instruction should give a 0x7fffffff result when
+        the source value is Infinity, NaN, or rounds to an integer outside the
+        range -2^31 to 2^31 -1. This is what branchTruncateDoubleToInt32() and
+        branchTruncateDoubleToUInt32() have been relying on. It turns out that
+        this assumption is not true on some CPUs, including on the ci20 on
+        which we run the testbot (we get 0x80000000 instead). We should the
+        invalid operation cause bit instead to check whether the source value
+        could be properly truncated. This requires the addition of the cfc1
+        instruction, as well as the special registers that can be used with it
+        (control registers of CP1).
+
+        * assembler/MIPSAssembler.h:
+        (JSC::MIPSAssembler::firstSPRegister):
+        (JSC::MIPSAssembler::lastSPRegister):
+        (JSC::MIPSAssembler::numberOfSPRegisters):
+        (JSC::MIPSAssembler::sprName):
+        Added control registers of CP1.
+        (JSC::MIPSAssembler::cfc1):
+        Added.
+        * assembler/MacroAssemblerMIPS.h:
+        (JSC::MacroAssemblerMIPS::branchOnTruncateResult):
+        (JSC::MacroAssemblerMIPS::branchTruncateDoubleToInt32):
+        (JSC::MacroAssemblerMIPS::branchTruncateDoubleToUint32):
+        Use fcsr to check if the value could be properly truncated.
+
+2017-10-24  Guillaume Emont  <guijemont@igalia.com>
+
+        [mips] fix offsets of branches that have to go over a jump
+        https://bugs.webkit.org/show_bug.cgi?id=153464
+
+        The jump() function creates 8 instructions, but the offsets of branches
+        meant to go over them only account for 6. In most cases, this is not an
+        issue as the last two instructions of jump() would be nops, but in the
+        rarer case where the jump destination is in a different 256 MB segment,
+        MIPSAssembler::linkWithOffset() will rewrite the code in a way in which
+        the last 4 instructions would be a 2 instruction load (lui/ori) into
+        $t9, a "j $t9" and then a nop. The wrong offset will mean that the
+        previous branches meant to go over the whole jump will branch to the
+        "j $t9" instruction, which would jump to whatever is currently in $t9
+        (since lui/ori would not be executed).
+
+        Reviewed by Michael Catanzaro.
+
+        * assembler/MacroAssemblerMIPS.h:
+        (JSC::MacroAssemblerMIPS::branchAdd32):
+        (JSC::MacroAssemblerMIPS::branchMul32):
+        (JSC::MacroAssemblerMIPS::branchSub32):
+        Fix the offsets of branches meant to go over code generated by jump().
+
 2017-09-26  Zan Dobersek  <zdobersek@igalia.com>
 
         Support building JavaScriptCore with the Bionic C library
@@ -5968,6 +6170,35 @@
         * assembler/MacroAssemblerARMv7.cpp:
         * assembler/MacroAssemblerX86Common.cpp:
 
+2017-08-21  Keith Miller  <keith_miller@apple.com>
+
+        Make generate_offset_extractor.rb architectures argument more robust
+        https://bugs.webkit.org/show_bug.cgi?id=175809
+
+        Reviewed by Joseph Pecoraro.
+
+        It turns out that some of our builders pass their architectures as
+        space separated lists.  I decided to just make the splitting of
+        our list robust to any reasonable combination of spaces and
+        commas.
+
+        * offlineasm/generate_offset_extractor.rb:
+
+2017-08-21  Keith Miller  <keith_miller@apple.com>
+
+        Only generate offline asm for the ARCHS (xcodebuild) or the current system (CMake)
+        https://bugs.webkit.org/show_bug.cgi?id=175690
+
+        Reviewed by Michael Saboff.
+
+        This should reduce some of the time we spend building offline asm
+        in our builds (except for linux since they already did this).
+
+        * CMakeLists.txt:
+        * JavaScriptCore.xcodeproj/project.pbxproj:
+        * offlineasm/backends.rb:
+        * offlineasm/generate_offset_extractor.rb:
+
 2017-08-20  Mark Lam  <mark.lam@apple.com>
 
         Gardening: fix CLoop build.
@@ -6594,6 +6825,15 @@
         (JSC::fillStack):
         (JSC::testProbeModifiesStackWithCallback):
         (JSC::run):
+
+2017-08-16  Csaba Osztrogonác  <ossy@webkit.org>
+
+        Fix JSCOnly ARM buildbots after r220047 and r220184
+        https://bugs.webkit.org/show_bug.cgi?id=174993
+
+        Reviewed by Carlos Alberto Lopez Perez.
+
+        * CMakeLists.txt: Generate only one backend on Linux to save build time.
 
 2017-08-16  Andy Estes  <aestes@apple.com>
 

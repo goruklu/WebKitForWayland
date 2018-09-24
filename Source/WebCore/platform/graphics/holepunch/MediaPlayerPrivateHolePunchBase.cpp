@@ -27,15 +27,14 @@
 #include "config.h"
 #include "MediaPlayerPrivateHolePunchBase.h"
 
+#if USE(COORDINATED_GRAPHICS_THREADED)
 #include "IntRect.h"
 #include "MediaPlayer.h"
 #include "NotImplemented.h"
-#include <wtf/glib/GMutexLocker.h>
-
-#if USE(COORDINATED_GRAPHICS_THREADED)
 #include "TextureMapperGL.h"
 #include "TextureMapperPlatformLayerBuffer.h"
-#endif
+#include <wtf/glib/GMutexLocker.h>
+
 
 using namespace std;
 
@@ -47,12 +46,16 @@ MediaPlayerPrivateHolePunchBase::MediaPlayerPrivateHolePunchBase(MediaPlayer* pl
 #if USE(COORDINATED_GRAPHICS_THREADED)
     m_platformLayerProxy = adoptRef(new TextureMapperPlatformLayerProxy());
     LockHolder locker(m_platformLayerProxy->lock());
-    m_platformLayerProxy->pushNextBuffer(std::make_unique<TextureMapperPlatformLayerBuffer>(0, m_size, TextureMapperGL::ShouldOverwriteRect, GraphicsContext3D::DONT_CARE));
+    m_platformLayerProxy->pushNextBuffer(std::make_unique<TextureMapperPlatformLayerBuffer>(0, m_size, TextureMapperGL::ShouldOverwriteRect, GL_DONT_CARE));
 #endif
 }
 
 MediaPlayerPrivateHolePunchBase::~MediaPlayerPrivateHolePunchBase()
 {
+#if USE(TEXTURE_MAPPER_GL)
+    if (client())
+        client()->platformLayerWillBeDestroyed();
+#endif
     m_player = 0;
 }
 
@@ -75,4 +78,13 @@ void MediaPlayerPrivateHolePunchBase::setSize(const IntSize& size)
 {
     m_size = size;
 }
+
+void MediaPlayerPrivateHolePunchBase::swapBuffersIfNeeded()
+{
+    LockHolder locker(m_platformLayerProxy->lock());
+    m_platformLayerProxy->pushNextBuffer(std::make_unique<TextureMapperPlatformLayerBuffer>(0, m_size, TextureMapperGL::ShouldOverwriteRect, GL_DONT_CARE));
 }
+
+}
+
+#endif // USE(COORDINATED_GRAPHICS_THREADED)

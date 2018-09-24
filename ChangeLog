@@ -1,11 +1,12 @@
-2017-10-04  Miguel Gomez  <magomez@igalia.com>
+2017-11-21  Zan Dobersek  <zdobersek@igalia.com>
 
-        Add animation support for WebP images
-        https://bugs.webkit.org/show_bug.cgi?id=113124
+        Drop ENABLE_IMAGE_DECODER_DOWN_SAMPLING code
+        https://bugs.webkit.org/show_bug.cgi?id=179921
 
-        Reviewed by Žan Doberšek.
+        Reviewed by Carlos Garcia Campos.
 
-        * Source/cmake/FindWebP.cmake:
+        * Source/cmake/WebKitFeatures.cmake: Remove the CMake option that
+        enabled IMAGE_DECODER_DOWN_SAMPLING code.
 
 2017-09-26  Zan Dobersek  <zdobersek@igalia.com>
 

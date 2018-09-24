@@ -60,6 +60,7 @@ set(WTF_HEADERS
     IndexedContainerIterator.h
     IteratorAdaptors.h
     IteratorRange.h
+    JSONValues.h
     Language.h
     ListHashSet.h
     Liveness.h
@@ -158,6 +159,7 @@ set(WTF_HEADERS
     WeakPtr.h
     WordLock.h
     WorkQueue.h
+    WorkerPool.h
     dtoa.h
 
     dtoa/bignum-dtoa.h
@@ -230,6 +232,7 @@ set(WTF_SOURCES
     GlobalVersion.cpp
     GregorianDateTime.cpp
     HashTable.cpp
+    JSONValues.cpp
     Language.cpp
     Lock.cpp
     LockedPrintStream.cpp
@@ -267,6 +270,7 @@ set(WTF_SOURCES
     WallTime.cpp
     WordLock.cpp
     WorkQueue.cpp
+    WorkerPool.cpp
     dtoa.cpp
 
     dtoa/bignum-dtoa.cc

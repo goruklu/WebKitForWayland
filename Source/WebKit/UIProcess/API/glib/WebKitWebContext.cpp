@@ -230,16 +230,22 @@ private:
         return webkitAutomationSessionGetBrowserVersion(m_webContext->priv->automationSession.get());
     }
 
-    void requestAutomationSession(const String& sessionIdentifier) override
+    void requestAutomationSession(const String& sessionIdentifier, const Inspector::RemoteInspector::Client::SessionCapabilities& capabilities) override
     {
         ASSERT(!m_webContext->priv->automationSession);
-        m_webContext->priv->automationSession = adoptGRef(webkitAutomationSessionCreate(m_webContext, sessionIdentifier.utf8().data()));
+        m_webContext->priv->automationSession = adoptGRef(webkitAutomationSessionCreate(m_webContext, sessionIdentifier.utf8().data(), capabilities));
         g_signal_emit(m_webContext, signals[AUTOMATION_STARTED], 0, m_webContext->priv->automationSession.get());
         m_webContext->priv->processPool->setAutomationSession(&webkitAutomationSessionGetSession(m_webContext->priv->automationSession.get()));
     }
 
     WebKitWebContext* m_webContext;
 };
+
+void webkitWebContextWillCloseAutomationSession(WebKitWebContext* webContext)
+{
+    webContext->priv->processPool->setAutomationSession(nullptr);
+    webContext->priv->automationSession = nullptr;
+}
 #endif // ENABLE(REMOTE_INSPECTOR)
 
 WEBKIT_DEFINE_TYPE(WebKitWebContext, webkit_web_context, G_TYPE_OBJECT)

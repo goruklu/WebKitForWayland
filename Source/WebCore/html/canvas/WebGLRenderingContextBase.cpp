@@ -68,6 +68,7 @@
 #include "RenderBox.h"
 #include "RuntimeEnabledFeatures.h"
 #include "Settings.h"
+#include "TextureMapperPlatformLayerProxyProvider.h"
 #include "WebGL2RenderingContext.h"
 #include "WebGLActiveInfo.h"
 #include "WebGLBuffer.h"
@@ -433,7 +434,8 @@ std::unique_ptr<WebGLRenderingContextBase> WebGLRenderingContextBase::create(HTM
         return renderingContext;
     }
 
-    auto context = GraphicsContext3D::create(attributes, document.view()->root()->hostWindow());
+    GraphicsContext3D::RenderStyle renderStyle = frame->settings().nonCompositedWebGLEnabled() ? GraphicsContext3D::RenderDirectlyToHostWindow : GraphicsContext3D::RenderOffscreen;
+    auto context = GraphicsContext3D::create(attributes, document.view()->root()->hostWindow(), renderStyle);
     if (!context || !context->makeContextCurrent()) {
         canvas.dispatchEvent(WebGLContextEvent::create(eventNames().webglcontextcreationerrorEvent, false, true, "Could not create a WebGL context."));
         return nullptr;
@@ -630,7 +632,7 @@ void WebGLRenderingContextBase::addActivityStateChangeObserverIfNecessary()
 {
     // We are only interested in visibility changes for contexts
     // that are using the high-performance GPU.
-    if (!isHighPerformanceContext(m_context))
+    if (!isHighPerformanceContext(m_context) && !canvas().document().frame()->settings().nonCompositedWebGLEnabled())
         return;
 
     auto* page = canvas().document().page();
@@ -3555,7 +3557,29 @@ ExceptionOr<void> WebGLRenderingContextBase::texSubImage2D(GC3Denum target, GC3D
     if (isContextLostOrPending())
         return { };
 
-    auto visitor = WTF::makeVisitor([&](const RefPtr<ImageData>& pixels) -> ExceptionOr<void> {
+    auto visitor = WTF::makeVisitor([&](const RefPtr<ImageBitmap>& bitmap) -> ExceptionOr<void> {
+        WebGLTexture* texture = validateTextureBinding("texSubImage2D", target, true);
+        if (!texture)
+            return { };
+
+        GC3Denum internalFormat = texture->getInternalFormat(target, level);
+        if (!internalFormat) {
+            synthesizeGLError(GraphicsContext3D::INVALID_VALUE, "texSubImage2D", "invalid texture target or level");
+            return { };
+        }
+
+        if (!validateTexFunc("texSubImage2D", TexSubImage, SourceImageBitmap, target, level, internalFormat, bitmap->width(), bitmap->height(), 0, format, type, xoffset, yoffset))
+            return { };
+
+        ImageBuffer* buffer = bitmap->buffer();
+        if (!buffer)
+            return { };
+
+        RefPtr<Image> image = buffer->copyImage(ImageBuffer::fastCopyImageMode());
+        if (image)
+            texSubImage2DImpl(target, level, xoffset, yoffset, format, type, image.get(), GraphicsContext3D::HtmlDomImage, m_unpackFlipY, m_unpackPremultiplyAlpha);
+        return { };
+    }, [&](const RefPtr<ImageData>& pixels) -> ExceptionOr<void> {
         WebGLTexture* texture = validateTextureBinding("texSubImage2D", target, true);
         if (!texture)
             return { };
@@ -4099,7 +4123,38 @@ ExceptionOr<void> WebGLRenderingContextBase::texImage2D(GC3Denum target, GC3Dint
         return { };
     }
 
-    auto visitor = WTF::makeVisitor([&](const RefPtr<ImageData>& pixels) -> ExceptionOr<void> {
+    auto visitor = WTF::makeVisitor([&](const RefPtr<ImageBitmap>& bitmap) -> ExceptionOr<void> {
+        if (isContextLostOrPending() || !validateTexFunc("texImage2D", TexImage, SourceImageBitmap, target, level, internalformat, bitmap->width(), bitmap->height(), 0, format, type, 0, 0))
+            return { };
+
+        ImageBuffer* buffer = bitmap->buffer();
+        if (!buffer)
+            return { };
+
+        WebGLTexture* texture = validateTextureBinding("texImage2D", target, true);
+        // If possible, copy from the bitmap directly to the texture
+        // via the GPU, without a read-back to system memory.
+        //
+        // FIXME: restriction of (RGB || RGBA)/UNSIGNED_BYTE should be lifted when
+        // ImageBuffer::copyToPlatformTexture implementations are fully functional.
+        if (texture
+            && (format == GraphicsContext3D::RGB || format == GraphicsContext3D::RGBA)
+            && type == GraphicsContext3D::UNSIGNED_BYTE) {
+            auto textureInternalFormat = texture->getInternalFormat(target, level);
+            if (isRGBFormat(textureInternalFormat) || !texture->isValid(target, level)) {
+                if (buffer->copyToPlatformTexture(*m_context.get(), target, texture->object(), internalformat, m_unpackPremultiplyAlpha, m_unpackFlipY)) {
+                    texture->setLevelInfo(target, level, internalformat, bitmap->width(), bitmap->height(), type);
+                    return { };
+                }
+            }
+        }
+
+        // Normal pure SW path.
+        RefPtr<Image> image = buffer->copyImage(ImageBuffer::fastCopyImageMode());
+        if (image)
+            texImage2DImpl(target, level, internalformat, format, type, image.get(), GraphicsContext3D::HtmlDomImage, m_unpackFlipY, m_unpackPremultiplyAlpha);
+        return { };
+    }, [&](const RefPtr<ImageData>& pixels) -> ExceptionOr<void> {
         if (isContextLostOrPending() || !validateTexFunc("texImage2D", TexImage, SourceImageData, target, level, internalformat, pixels->width(), pixels->height(), 0, format, type, 0, 0))
             return { };
         Vector<uint8_t> data;
@@ -5695,7 +5750,8 @@ void WebGLRenderingContextBase::maybeRestoreContext()
     if (!hostWindow)
         return;
 
-    RefPtr<GraphicsContext3D> context(GraphicsContext3D::create(m_attributes, hostWindow));
+    GraphicsContext3D::RenderStyle renderStyle = frame->settings().nonCompositedWebGLEnabled() ? GraphicsContext3D::RenderDirectlyToHostWindow : GraphicsContext3D::RenderOffscreen;
+    RefPtr<GraphicsContext3D> context(GraphicsContext3D::create(m_attributes, hostWindow, renderStyle));
     if (!context) {
         if (m_contextLostMode == RealLostContext)
             m_restoreTimer.startOneShot(secondsBetweenRestoreAttempts);
@@ -5967,8 +6023,23 @@ void WebGLRenderingContextBase::activityStateDidChange(ActivityState::Flags oldA
         return;
 
     ActivityState::Flags changed = oldActivityState ^ newActivityState;
-    if (changed & ActivityState::IsVisible)
-        m_context->setContextVisibility(newActivityState & ActivityState::IsVisible);
+    if (isHighPerformanceContext(m_context)) {
+        if (changed & ActivityState::IsVisible) {
+            m_context->setContextVisibility(newActivityState & ActivityState::IsVisible);
+        }
+    }
+
+    if (canvas().document().frame()->settings().nonCompositedWebGLEnabled()) {
+        if ((changed & ActivityState::IsInWindow) && !(newActivityState & ActivityState::IsInWindow)) {
+            if (m_scissorEnabled)
+                m_context->disable(GraphicsContext3D::SCISSOR_TEST);
+            m_context->clearColor(0, 0, 0, 0);
+            m_context->clear(GraphicsContext3D::COLOR_BUFFER_BIT);
+            m_context->platformLayer()->swapBuffersIfNeeded();
+            if (m_scissorEnabled)
+                m_context->enable(GraphicsContext3D::SCISSOR_TEST);
+        }
+    }
 }
 
 void WebGLRenderingContextBase::setFailNextGPUStatusCheck()
