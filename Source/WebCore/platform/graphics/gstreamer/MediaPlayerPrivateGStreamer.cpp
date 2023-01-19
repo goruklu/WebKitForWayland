@@ -3893,7 +3893,7 @@ void MediaPlayerPrivateGStreamer::configureElement(GstElement* element)
     }
     if(!g_strcmp0(G_OBJECT_TYPE_NAME(G_OBJECT(element)), "GstBrcmPCMSink")) {
 #if ENABLE(MEDIA_STREAM)
-        if (player->m_streamPrivate != nullptr && g_object_class_find_property(G_OBJECT_GET_CLASS(element), "low_latency")) {
+        if (m_streamPrivate != nullptr && g_object_class_find_property(G_OBJECT_GET_CLASS(element), "low_latency")) {
             GST_DEBUG("Set 'low_latency' in brcmpcmsink");
             g_object_set (G_OBJECT(element), "low_latency", TRUE, nullptr);
             g_object_set (G_OBJECT(element), "low_latency_max_queued_ms", 60, nullptr);
