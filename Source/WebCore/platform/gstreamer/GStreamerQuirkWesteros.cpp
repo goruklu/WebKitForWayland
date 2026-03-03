@@ -61,9 +61,14 @@ void GStreamerQuirkWesteros::configureElement(GstElement* element, const OptionS
     if (!characteristics.contains(ElementRuntimeCharacteristics::IsMediaStream))
         return;
 
-    if (!g_strcmp0(G_OBJECT_TYPE_NAME(G_OBJECT(element)), "GstWesterosSink") && gstObjectHasProperty(element, "immediate-output")) {
-        GST_INFO("Enable 'immediate-output' in WesterosSink");
-        g_object_set(element, "immediate-output", TRUE, nullptr);
+    if (!g_strcmp0(G_OBJECT_TYPE_NAME(G_OBJECT(element)), "GstWesterosSink")){
+        if(gstObjectHasProperty(element, "low-latency-mode")) {
+            GST_INFO("Enable 'low-latency-mode' in WesterosSink");
+            g_object_set(element, "low-latency-mode", TRUE, nullptr);
+        } else if (gstObjectHasProperty(element, "immediate-output")) {
+            GST_INFO("Enable 'immediate-output' in WesterosSink");
+            g_object_set(element, "immediate-output", TRUE, nullptr);
+        }
     }
 }
 
